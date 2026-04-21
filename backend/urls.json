@@ -1,0 +1,20 @@
+[
+  {
+    "id": "e1a5f657-dedf-4396-86a0-77bea729081b",
+    "url": "https://www.hdfc.bank.in/interest-rates",
+    "bank_name": "HDFC",
+    "created_at": "2026-04-21T04:57:36.183203+00:00"
+  },
+  {
+    "id": "3cb43768-5e5d-4d3a-83d5-5823bcb5c960",
+    "url": "https://www.indusind.bank.in/in/en/personal/rates.html",
+    "bank_name": "Indusind",
+    "created_at": "2026-04-21T05:10:14.937797+00:00"
+  },
+  {
+    "id": "419421c8-073d-46a5-bbf8-ae083da6da5e",
+    "url": "https://sbi.co.in/web/interest-rates/deposit-rates/retail-domestic-term-deposits",
+    "bank_name": "SBI",
+    "created_at": "2026-04-21T07:59:36.839195+00:00"
+  }
+]

@@ -1,0 +1,153 @@
+/* ============================================
+   FD Rate Scraper — Axis Bank Theme
+   ============================================ */
+:root {
+  --primary: #97144D;
+  --primary-dark: #6B0E37;
+  --primary-light: #C4547A;
+  --accent: #12877F;
+  --bg: #FDF5F8;
+  --card-bg: #ffffff;
+  --text: #1e293b;
+  --text-muted: #64748b;
+  --border: #e8d0db;
+  --danger: #dc2626;
+  --success: #12877F;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app { max-width: 1400px; margin: 0 auto; padding: 1rem; }
+
+/* Header */
+.app-header {
+  text-align: center;
+  padding: 1.5rem 1rem 1.25rem;
+  background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 60%, var(--primary-light) 100%);
+  border-radius: 10px;
+  margin-bottom: 1.25rem;
+  box-shadow: 0 4px 12px rgba(151, 20, 77, 0.25);
+}
+.app-header h1 { font-size: 1.8rem; color: #ffffff; letter-spacing: 0.01em; }
+.subtitle { color: rgba(255,255,255,0.8); font-size: 0.95rem; margin-top: 0.25rem; }
+
+/* Message bar */
+.message-bar {
+  display: flex; justify-content: space-between; align-items: center;
+  background: #F9E6EE; border: 1px solid var(--primary-light); border-radius: 6px;
+  padding: 0.6rem 1rem; margin-bottom: 1rem; font-size: 0.9rem; color: var(--primary-dark);
+}
+.message-bar button {
+  background: none; border: none; cursor: pointer;
+  font-size: 1rem; color: var(--text-muted);
+}
+
+/* Layout */
+.main-layout { display: flex; gap: 1.5rem; }
+.sidebar { width: 360px; flex-shrink: 0; }
+.content { flex: 1; min-width: 0; }
+
+/* Cards */
+.card {
+  background: var(--card-bg); border-radius: 8px;
+  border: 1px solid var(--border); padding: 1rem; margin-bottom: 1rem;
+}
+.card h2 { font-size: 1.1rem; margin-bottom: 0.75rem; color: var(--primary-dark); }
+
+/* URL form */
+.url-form { display: flex; flex-direction: column; gap: 0.5rem; }
+.url-form input {
+  padding: 0.5rem 0.75rem; border: 1px solid var(--border);
+  border-radius: 4px; font-size: 0.9rem;
+}
+.url-form input:focus { outline: none; border-color: var(--primary); }
+
+/* Buttons */
+.btn {
+  padding: 0.6rem 1.2rem; border: none; border-radius: 6px;
+  font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: 0.15s;
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: var(--primary-dark); }
+.btn-danger { background: var(--danger); color: #fff; padding: 0.3rem 0.6rem; font-size: 0.8rem; }
+.btn-success { background: var(--accent); color: #fff; }
+.btn-success:hover:not(:disabled) { background: #0e6b64; }
+
+.action-buttons { display: flex; flex-direction: column; gap: 0.5rem; }
+.action-buttons .btn { width: 100%; }
+
+/* URL list */
+.url-list { list-style: none; margin-top: 0.5rem; }
+.url-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0.5rem; border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+.url-item:last-child { border-bottom: none; }
+.url-item .bank-name { font-weight: 600; }
+.url-item .bank-url { color: var(--text-muted); font-size: 0.8rem; word-break: break-all; }
+
+/* Results */
+.results-empty { text-align: center; padding: 3rem; color: var(--text-muted); }
+.bank-section { margin-bottom: 1.5rem; }
+.bank-section h3 {
+  font-size: 1rem; padding: 0.5rem 0.75rem;
+  background: var(--primary); color: #fff; border-radius: 6px 6px 0 0;
+  cursor: pointer; display: flex; justify-content: space-between;
+}
+.bank-section h3 .toggle { font-size: 0.8rem; }
+
+/* Filters */
+.filters {
+  display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;
+}
+.filter-chip {
+  padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.8rem;
+  border: 1px solid var(--border); background: var(--card-bg); cursor: pointer;
+}
+.filter-chip.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+/* Rate table */
+.rate-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.rate-table th {
+  background: var(--primary); color: #fff; padding: 0.5rem; text-align: left;
+  border-bottom: 2px solid var(--primary-dark); font-weight: 600;
+}
+.rate-table td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); }
+.rate-table tr:nth-child(even) { background: #FDF5F8; }
+.rate-table tr:hover { background: #F9E6EE; }
+
+.meta-info { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+
+/* Token usage bar */
+.token-usage-bar {
+  display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+  background: linear-gradient(90deg, #6B0E37 0%, #97144D 100%);
+  color: #fff; border-radius: 6px; padding: 0.5rem 1rem;
+  font-size: 0.82rem; margin-bottom: 0.75rem;
+}
+.token-label { font-weight: 700; margin-right: 0.25rem; }
+.token-stat { opacity: 0.92; }
+.token-sep { opacity: 0.5; }
+
+/* Spinner */
+.spinner {
+  display: inline-block; width: 16px; height: 16px;
+  border: 2px solid #fff; border-top-color: transparent;
+  border-radius: 50%; animation: spin 0.6s linear infinite;
+  margin-right: 0.4rem; vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Responsive */
+@media (max-width: 900px) {
+  .main-layout { flex-direction: column; }
+  .sidebar { width: 100%; }
+}

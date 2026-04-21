@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Azure Functions
+local.settings.json
+.python_packages/
+bin/
+obj/
+
+# Node / React
+frontend/node_modules/
+frontend/build/
+
+# Environment
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
