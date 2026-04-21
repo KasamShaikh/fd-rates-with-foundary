@@ -94,7 +94,7 @@ Required RBAC role on the storage account:
 
 ```
 Role  : Storage Blob Data Contributor
-Scope : /subscriptions/a012b726-d694-4532-a833-1bc28b0185a2
+Scope : /subscriptions/<YOUR_SUBSCRIPTION_ID>
           /resourceGroups/rg-fd-rates
           /providers/Microsoft.Storage/storageAccounts/fdratesstxf6etxfnua6lq
 ```
@@ -299,7 +299,7 @@ Parameters: `baseName` (default `fdrates`), `location` (default `centralindia`),
 
 ```env
 # Azure Subscription
-AZURE_SUBSCRIPTION_ID=a012b726-d694-4532-a833-1bc28b0185a2
+AZURE_SUBSCRIPTION_ID=<YOUR_SUBSCRIPTION_ID>
 AZURE_RESOURCE_GROUP=rg-fd-rates
 AZURE_LOCATION=centralindia
 
@@ -344,7 +344,7 @@ Copy-Item .env.template .env
 
 ```powershell
 az login --use-device-code
-az account set --subscription a012b726-d694-4532-a833-1bc28b0185a2
+az account set --subscription <YOUR_SUBSCRIPTION_ID>
 ```
 
 ### 3. Backend — Python virtual environment
