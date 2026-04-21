@@ -28,7 +28,7 @@ An AI-powered Fixed Deposit rate aggregator for Indian banks. Uses **Azure AI Fo
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                      Browser (React UI)                      │
-│  localhost:3000  —  Axis Bank colour theme                   │
+│  localhost:3000  —  custom colour theme                   │
 │  - Manage bank URLs          - View rate tables              │
 │  - Trigger scrape            - Filter by category            │
 │  - Export to Excel           - Token usage display           │
@@ -127,7 +127,7 @@ fd-rates-with-foundary/
 │   ├── package.json
 │   └── src/
 │       ├── App.js              ← Root component, state, API calls
-│       ├── App.css             ← Global styles (Axis Bank theme)
+│       ├── App.css             ← Global styles (custom colour theme)
 │       ├── index.js
 │       └── components/
 │           ├── UrlManager.js       ← Add / delete bank URLs
@@ -263,7 +263,7 @@ Right panel rendering:
 
 ### `frontend/src/App.css`
 
-Axis Bank colour theme via CSS custom properties:
+custom colour theme via CSS custom properties:
 
 | Variable | Hex | Usage |
 |---|---|---|
@@ -417,7 +417,7 @@ Returns all configured bank URLs.
 Add a bank URL.
 
 ```json
-{ "url": "https://...", "bank_name": "Axis Bank" }
+{ "url": "https://...", "bank_name": "Your Bank" }
 ```
 
 ### `DELETE /api/urls/{id}`
@@ -538,7 +538,7 @@ On extraction failure:
 | Category filter chips | Auto-generated from scraped data; filter across all banks simultaneously |
 | Token usage bar | Maroon gradient banner: `total · prompt · completion` tokens from the last scrape |
 | Write Excel | Calls `POST /api/export-excel`; shows uploaded blob name in the status bar |
-| Axis Bank theme | Primary maroon `#97144D`, teal accent `#12877F`, blush background `#FDF5F8` |
+| custom colour theme | Primary maroon `#97144D`, teal accent `#12877F`, blush background `#FDF5F8` |
 
 ---
 
