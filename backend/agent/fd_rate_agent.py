@@ -252,12 +252,16 @@ def fetch_webpage_handler(url: str) -> str:
     # Honour robots.txt before any network call.
     allowed, reason = robots_is_allowed(url)
     if not allowed:
-        msg = f"Skipped {url} — {reason}"
-        logger.warning(msg)
+        logger.warning("robots.txt disallows %s (%s)", url, reason)
         progress_log(
-            f"Skipping page (robots.txt forbids automated access): {url}", level="warn"
+            f"⛔ Blocked by robots.txt: {url} — {reason}. Skipping this fetch.",
+            level="warn",
         )
-        return f"Error fetching {url}: {reason}"
+        return (
+            f"BLOCKED_BY_ROBOTS_TXT: The site's robots.txt disallows fetching {url}. "
+            f"No request was sent. Reason: {reason}. "
+            f"Return a JSON error object indicating the site forbids automated access."
+        )
 
     try:
         headers = {
@@ -611,6 +615,35 @@ def scrape_all_urls(urls: list[dict]) -> list[dict]:
         progress_log(
             f"[{idx + 1}/{total_banks}] Starting {bank_name}...", bank=bank_name
         )
+
+        # Pre-flight: honour robots.txt before spending agent tokens.
+        allowed, reason = robots_is_allowed(entry["url"])
+        if not allowed:
+            logger.warning(
+                "Skipping %s — robots.txt disallows %s (%s)",
+                bank_name,
+                entry["url"],
+                reason,
+            )
+            progress_log(
+                f"⛔ {bank_name}: Skipped — the bank's robots.txt forbids automated access "
+                f"to this URL. ({reason}). To override, set ROBOTS_RESPECT=false (not recommended).",
+                level="warn",
+                bank=bank_name,
+            )
+            return idx, {
+                "bank_name": bank_name,
+                "url": entry["url"],
+                "error": "Blocked by robots.txt",
+                "reason": (
+                    f"The bank's robots.txt disallows automated access to {entry['url']} "
+                    f"for user-agent matching '{os.environ.get('ROBOTS_USER_AGENT', 'FDRateAggregator')}'. "
+                    f"No fetch was attempted. ({reason})"
+                ),
+                "blocked_by_robots": True,
+                "di_pages": None,
+            }
+
         result = scrape_bank_url(
             agents_client=agents_client,
             agent_id=agent.id,

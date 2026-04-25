@@ -22,6 +22,7 @@ function ResultsDashboard({ results }) {
   const summary = useMemo(() => {
     const rows = bankResults.map((bank) => {
       const hasError = !!bank.error;
+      const isBlocked = !!bank.blocked_by_robots;
       const categories = bank.categories || [];
       const rateCount = categories.reduce(
         (sum, c) => sum + (c.rates ? c.rates.length : 0),
@@ -30,7 +31,7 @@ function ResultsDashboard({ results }) {
       return {
         bank_name: bank.bank_name || 'Unknown',
         url: bank.url || '',
-        status: hasError ? 'Failed' : 'Success',
+        status: isBlocked ? 'Blocked' : (hasError ? 'Failed' : 'Success'),
         categories: categories.length,
         rates: rateCount,
         effective_date: bank.effective_date || '—',
@@ -137,10 +138,10 @@ function ResultsDashboard({ results }) {
               </thead>
               <tbody>
                 {summary.rows.map((row, i) => (
-                  <tr key={i} className={row.status === 'Failed' ? 'row-fail' : 'row-ok'}>
+                  <tr key={i} className={row.status === 'Success' ? 'row-ok' : 'row-fail'}>
                     <td>
-                      <span className={`status-pill ${row.status === 'Failed' ? 'pill-fail' : 'pill-ok'}`}>
-                        {row.status === 'Failed' ? '✖ Failed' : '✔ OK'}
+                      <span className={`status-pill ${row.status === 'Success' ? 'pill-ok' : 'pill-fail'}`}>
+                        {row.status === 'Success' ? '✔ OK' : (row.status === 'Blocked' ? '⛔ Blocked' : '✖ Failed')}
                       </span>
                     </td>
                     <td>
@@ -155,9 +156,9 @@ function ResultsDashboard({ results }) {
                     <td>{row.rates}</td>
                     <td>{row.effective_date}</td>
                     <td className="summary-details">
-                      {row.status === 'Failed'
-                        ? (row.reason || row.error || 'Unknown error')
-                        : '—'}
+                      {row.status === 'Success'
+                        ? '—'
+                        : (row.reason || row.error || 'Unknown error')}
                     </td>
                   </tr>
                 ))}
@@ -199,7 +200,14 @@ function ResultsDashboard({ results }) {
 
                 {isExpanded && (
                   <div style={{ border: '1px solid #e2e8f0', borderTop: 'none', borderRadius: '0 0 6px 6px', overflow: 'auto' }}>
-                    {bank.error ? (
+                    {bank.blocked_by_robots ? (
+                      <div style={{ padding: '1rem', background: '#fef3c7', color: '#78350f', borderLeft: '4px solid #d97706' }}>
+                        <strong>⛔ Blocked by robots.txt</strong><br />
+                        This bank&apos;s website forbids automated access to the configured URL.
+                        No fetch was attempted, and no tokens were used.<br />
+                        {bank.reason && <span style={{ fontSize: '0.85rem', opacity: 0.85 }}>{bank.reason}</span>}
+                      </div>
+                    ) : bank.error ? (
                       <div style={{ padding: '1rem', color: '#dc2626' }}>
                         Error: {bank.error}<br />
                         {bank.reason && <span>Reason: {bank.reason}</span>}

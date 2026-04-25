@@ -83,7 +83,10 @@ def _download(url: str, max_bytes: int, expect_prefix: str) -> tuple[bytes, str]
 
     allowed, reason = _robots_is_allowed(url)
     if not allowed:
-        raise RuntimeError(f"robots.txt forbids fetching {url}: {reason}")
+        raise RuntimeError(
+            f"Blocked by robots.txt: {url} — the site forbids automated download "
+            f"of this asset ({reason}). No request was sent."
+        )
 
     with requests.get(url, headers=_BROWSER_HEADERS, timeout=30, stream=True) as resp:
         resp.raise_for_status()
