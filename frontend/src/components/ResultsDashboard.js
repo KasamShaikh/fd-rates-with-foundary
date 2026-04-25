@@ -37,26 +37,38 @@ function ResultsDashboard({ results }) {
     const rows = bankResults.map((bank) => {
       const hasError = !!bank.error;
       const isBlocked = !!bank.blocked_by_robots;
+      const isUnchanged = !!bank.unchanged;
       const categories = bank.categories || [];
       const rateCount = categories.reduce(
         (sum, c) => sum + (c.rates ? c.rates.length : 0),
         0
       );
+      // Status precedence: Blocked > Failed > Unchanged > Success.
+      // Unchanged rows are still successful extractions — they just came
+      // from cache because the bank's page hasn't been republished.
+      let status = 'Success';
+      if (isBlocked) status = 'Blocked';
+      else if (hasError) status = 'Failed';
+      else if (isUnchanged) status = 'Unchanged';
       return {
         bank_name: bank.bank_name || 'Unknown',
         url: bank.url || '',
-        status: isBlocked ? 'Blocked' : (hasError ? 'Failed' : 'Success'),
+        status,
         categories: categories.length,
         rates: rateCount,
         effective_date: bank.effective_date || '—',
+        last_changed_at: bank.last_changed_at || '',
         error: bank.error || '',
         reason: bank.reason || '',
       };
     });
-    const successCount = rows.filter((r) => r.status === 'Success').length;
+    const successCount = rows.filter(
+      (r) => r.status === 'Success' || r.status === 'Unchanged'
+    ).length;
+    const unchangedCount = rows.filter((r) => r.status === 'Unchanged').length;
     const failCount = rows.length - successCount;
     const totalRates = rows.reduce((s, r) => s + r.rates, 0);
-    return { rows, successCount, failCount, totalRates };
+    return { rows, successCount, unchangedCount, failCount, totalRates };
   }, [bankResults]);
 
   // Toggle expand/collapse for one bank section. Note the default-expanded
@@ -125,6 +137,10 @@ function ResultsDashboard({ results }) {
               <div className="summary-card-label">Successful</div>
               <div className="summary-card-value">{summary.successCount}</div>
             </div>
+            <div className="summary-card summary-card-banks">
+              <div className="summary-card-label">Unchanged (cached)</div>
+              <div className="summary-card-value">{summary.unchangedCount}</div>
+            </div>
             <div className="summary-card summary-card-fail">
               <div className="summary-card-label">Failed</div>
               <div className="summary-card-value">{summary.failCount}</div>
@@ -154,10 +170,13 @@ function ResultsDashboard({ results }) {
               </thead>
               <tbody>
                 {summary.rows.map((row, i) => (
-                  <tr key={i} className={row.status === 'Success' ? 'row-ok' : 'row-fail'}>
+                  <tr key={i} className={row.status === 'Failed' || row.status === 'Blocked' ? 'row-fail' : 'row-ok'}>
                     <td>
-                      <span className={`status-pill ${row.status === 'Success' ? 'pill-ok' : 'pill-fail'}`}>
-                        {row.status === 'Success' ? '✔ OK' : (row.status === 'Blocked' ? '⛔ Blocked' : '✖ Failed')}
+                      <span className={`status-pill ${row.status === 'Failed' || row.status === 'Blocked' ? 'pill-fail' : 'pill-ok'}`}>
+                        {row.status === 'Success' && '✔ OK'}
+                        {row.status === 'Unchanged' && '↻ Unchanged'}
+                        {row.status === 'Blocked' && '⛔ Blocked'}
+                        {row.status === 'Failed' && '✖ Failed'}
                       </span>
                     </td>
                     <td>
@@ -172,9 +191,14 @@ function ResultsDashboard({ results }) {
                     <td>{row.rates}</td>
                     <td>{row.effective_date}</td>
                     <td className="summary-details">
-                      {row.status === 'Success'
-                        ? '—'
-                        : (row.reason || row.error || 'Unknown error')}
+                      {row.status === 'Success' && '—'}
+                      {row.status === 'Unchanged' && (
+                        <span title="Bank web page was unchanged since the previous run; the cached result was reused (0 tokens used).">
+                          Reused from cache{row.last_changed_at ? ` · last change ${row.last_changed_at.slice(0, 10)}` : ''}
+                        </span>
+                      )}
+                      {(row.status === 'Failed' || row.status === 'Blocked') &&
+                        (row.reason || row.error || 'Unknown error')}
                     </td>
                   </tr>
                 ))}

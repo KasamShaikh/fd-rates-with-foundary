@@ -129,11 +129,20 @@ def scrape_all(req: func.HttpRequest) -> func.HttpResponse:
                 {"error": "None of the selected URL ids match configured URLs."}, 400
             )
 
+    # Optional: `force=true` in body bypasses the L1 HTTP cache.
+    force_refresh = bool((body or {}).get("force")) if isinstance(body, dict) else False
+    if force_refresh:
+        os.environ["FORCE_REFRESH"] = "true"
+
     logger.info("Starting fetch for %d URLs", len(urls))
     import time as _time
 
     _t0 = _time.monotonic()
-    scrape_output = scrape_all_urls(urls)
+    try:
+        scrape_output = scrape_all_urls(urls)
+    finally:
+        if force_refresh:
+            os.environ.pop("FORCE_REFRESH", None)
     elapsed_seconds = round(_time.monotonic() - _t0, 1)
     results = (
         scrape_output.get("results", scrape_output)
@@ -146,6 +155,11 @@ def scrape_all(req: func.HttpRequest) -> func.HttpResponse:
     di_pages = (
         scrape_output.get("di_pages", 0) if isinstance(scrape_output, dict) else 0
     )
+    unchanged_count = (
+        scrape_output.get("unchanged_count", 0)
+        if isinstance(scrape_output, dict)
+        else 0
+    )
 
     # Build final payload
     timestamp = datetime.now(timezone.utc)
@@ -154,6 +168,7 @@ def scrape_all(req: func.HttpRequest) -> func.HttpResponse:
         "bank_count": len(results),
         "token_usage": token_usage,
         "di_pages": di_pages,
+        "unchanged_count": unchanged_count,
         "elapsed_seconds": elapsed_seconds,
         "results": results,
     }

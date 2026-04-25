@@ -34,8 +34,9 @@ An AI-powered Fixed Deposit rate aggregator for Indian banks. Uses **Azure AI Fo
 12. [Blob Storage Contents](#blob-storage-contents)
 13. [Production Deployment](#production-deployment)
 14. [Responsible Fetching (robots.txt)](#responsible-fetching-robotstxt)
-15. [Code Commenting Convention](#code-commenting-convention)
-16. [Troubleshooting](#troubleshooting)
+15. [Change Detection (HTTP cache)](#change-detection-http-cache)
+16. [Code Commenting Convention](#code-commenting-convention)
+17. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -727,6 +728,72 @@ Every outbound HTTP request the agent makes — HTML page fetches, Playwright re
 python -c "from backend.agent.robots import is_allowed; print(is_allowed('https://www.hdfcbank.com/personal/resources/rates'))"
 # Expected: (True, 'allowed by robots.txt')
 ```
+
+---
+
+## Change Detection (HTTP cache)
+
+Bank FD-rate pages are republished roughly quarterly. To avoid re-running the
+(expensive) Foundry agent + Document Intelligence pipeline on every fetch, an
+**L1 HTTP-level short-circuit** in `backend/agent/http_cache.py` probes each
+URL with a conditional `GET` *before* spending any tokens.
+
+### How it works
+
+For every URL, the previous run's response fingerprint is stored in
+`backend/_local_results/state/url_state.json`:
+
+```json
+{
+  "<url_id>": {
+    "etag": "\"abc123\"",
+    "last_modified": "Wed, 15 Oct 2025 09:21:00 GMT",
+    "sha256": "f0c8…",
+    "content_length": 84231,
+    "last_checked_at": "2026-04-21T09:30:00+00:00",
+    "last_changed_at": "2026-01-12T11:14:30+00:00"
+  }
+}
+```
+
+On the next run, before invoking the agent for a bank, the worker:
+
+1. Sends a `GET` with `If-None-Match` and `If-Modified-Since` set from the
+   stored fingerprint.
+2. **`304 Not Modified`** → page is unchanged. Reuse the cached result from
+   `state/per_url/<url_id>.json` and tag it `unchanged: true`. **0 tokens, 0
+   DI pages.** Cheapest happy path.
+3. **`200 OK` with matching body sha256** → same outcome (handles servers
+   that ignore conditional headers but still serve byte-identical HTML).
+4. **Anything else** (sha mismatch, non-2xx, transport error) → fall through
+   to the full scrape; the new fingerprint is stored on success.
+
+Fail-open: any exception during the probe triggers the full scrape — we never
+return stale data because of a network blip.
+
+### Configuration
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `STATE_DIR` | `backend/_local_results/state/` | Where the fingerprint and per-URL snapshot files live. |
+| `FORCE_REFRESH` | unset | When truthy, every cache check returns *changed*, guaranteeing a full scrape. |
+| `HTTP_CACHE_TIMEOUT_SECONDS` | `15` | Timeout for the conditional `GET` probe. |
+
+The API also accepts `{"force": true}` in the `POST /api/scrape` body, and the
+UI exposes a **"Force refresh (skip cache)"** checkbox in the sidebar.
+
+### What the user sees on a cache hit
+
+- **Activity log** — `↻ HDFC Bank: unchanged since 2026-01-12 — reused cached result (24 rates). 0 tokens used.`
+- **Summary tab** — a separate **"↻ Unchanged"** pill and an *"Unchanged (cached)"* count card.
+- **Run footer** — the final progress line includes `(N unchanged — reused from cache, 0 tokens)`.
+- **JSON result** — `{"unchanged": true, "last_changed_at": "…"}` on the bank entry.
+
+### Where the state lives
+
+State files are excluded from git via `**/_local_results/` in `.gitignore`,
+so they stay local to each environment. For the deployed Function App,
+point `STATE_DIR` at a writable directory or a mounted volume.
 
 ---
 

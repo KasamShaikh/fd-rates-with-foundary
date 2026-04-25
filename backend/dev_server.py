@@ -169,6 +169,13 @@ def scrape_all():
                 {"error": "None of the selected URL ids match configured URLs."}
             ), 400
 
+    # Optional: `force=true` bypasses the L1 HTTP cache and forces a full
+    # scrape for every URL this run. Surfaced via FORCE_REFRESH env var which
+    # the http_cache module reads. Cleared in finally{} below.
+    force_refresh = bool(body.get("force"))
+    if force_refresh:
+        os.environ["FORCE_REFRESH"] = "true"
+
     # Validate that Foundry is configured
     if not os.environ.get("PROJECT_ENDPOINT") or "<your-resource>" in os.environ.get(
         "PROJECT_ENDPOINT", ""
@@ -203,6 +210,9 @@ def scrape_all():
             level="success",
         )
         _progress.mark_done()
+        # Always clear FORCE_REFRESH so subsequent runs return to the cached path.
+        if force_refresh:
+            os.environ.pop("FORCE_REFRESH", None)
 
     results = (
         scrape_output.get("results", scrape_output)
@@ -215,6 +225,11 @@ def scrape_all():
     di_pages = (
         scrape_output.get("di_pages", 0) if isinstance(scrape_output, dict) else 0
     )
+    unchanged_count = (
+        scrape_output.get("unchanged_count", 0)
+        if isinstance(scrape_output, dict)
+        else 0
+    )
 
     timestamp = datetime.now(timezone.utc)
     payload = {
@@ -222,6 +237,7 @@ def scrape_all():
         "bank_count": len(results),
         "token_usage": token_usage,
         "di_pages": di_pages,
+        "unchanged_count": unchanged_count,
         "elapsed_seconds": elapsed_seconds,
         "results": results,
     }

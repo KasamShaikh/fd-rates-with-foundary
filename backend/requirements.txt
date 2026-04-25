@@ -7,3 +7,4 @@ azure-ai-documentintelligence
 openpyxl
 python-dotenv
 playwright
+requests

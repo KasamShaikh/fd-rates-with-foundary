@@ -34,6 +34,7 @@ function App() {
   const [message, setMessage] = useState('');        // top status banner text
   const [progressEvents, setProgressEvents] = useState([]); // live activity feed
   const [selectedIds, setSelectedIds] = useState([]);// URL ids ticked in sidebar
+  const [forceRefresh, setForceRefresh] = useState(false); // bypass L1 HTTP cache
   const progressPollRef = useRef(null);              // setInterval handle for progress polling
 
   const fetchUrls = useCallback(async () => {
@@ -138,7 +139,10 @@ function App() {
       const res = await fetch(`${API}/api/scrape`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(willScrapeAll ? {} : { ids: selectedIds }),
+        body: JSON.stringify({
+          ...(willScrapeAll ? {} : { ids: selectedIds }),
+          ...(forceRefresh ? { force: true } : {}),
+        }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -236,6 +240,22 @@ function App() {
               selectedCount={selectedIds.length}
               totalCount={urls.length}
             />
+            <label
+              className="force-refresh-toggle"
+              title="Bypass the HTTP cache and force a full re-scrape of every selected URL, even if the bank's page hasn't changed since the last run."
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                fontSize: '0.85rem', padding: '4px 0', cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={forceRefresh}
+                onChange={(e) => setForceRefresh(e.target.checked)}
+                disabled={scraping}
+              />
+              <span>Force refresh (skip cache)</span>
+            </label>
             <ExportButton onClick={exportExcel} loading={exporting} disabled={!results} />
             <button
               className="btn btn-reset"

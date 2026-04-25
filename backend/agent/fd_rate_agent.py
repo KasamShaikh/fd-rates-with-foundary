@@ -22,6 +22,13 @@ from .asset_extractors import (
     get_di_page_count,
     reset_di_page_count,
 )
+from .http_cache import (
+    check_unchanged as http_cache_check,
+    get_cached_result,
+    load_state,
+    save_cached_result,
+    save_state,
+)
 from .progress import log as progress_log
 from .robots import is_allowed as robots_is_allowed
 
@@ -600,6 +607,12 @@ def scrape_all_urls(urls: list[dict]) -> list[dict]:
     usage_lock = threading.Lock()
     reset_di_page_count()
 
+    # L1 change-detection: load the prior per-URL fingerprint state once at
+    # the start of the run. Each worker mutates its slot via state_lock so we
+    # can persist updates atomically when the run finishes.
+    cache_state = load_state()
+    state_lock = threading.Lock()
+
     total_banks = len(urls)
     # Tunable parallelism. Default 4 — a good tradeoff for Foundry/DI quotas.
     max_workers = int(os.environ.get("SCRAPE_MAX_WORKERS", "4") or "4")
@@ -611,6 +624,7 @@ def scrape_all_urls(urls: list[dict]) -> list[dict]:
 
     def _scrape_one(idx: int, entry: dict) -> tuple[int, dict]:
         bank_name = entry["bank_name"]
+        url_id = str(entry.get("id") or "")
         logger.info("Fetching: %s (%s)", bank_name, entry["url"])
         progress_log(
             f"[{idx + 1}/{total_banks}] Starting {bank_name}...", bank=bank_name
@@ -644,6 +658,34 @@ def scrape_all_urls(urls: list[dict]) -> list[dict]:
                 "di_pages": None,
             }
 
+        # L1 change-detection: cheap conditional GET. If the page is byte- or
+        # header-identical to the last successful fetch and we have a cached
+        # result on disk, short-circuit without spending agent tokens.
+        unchanged, fingerprint = http_cache_check(url_id, entry["url"], cache_state)
+        if unchanged:
+            cached = get_cached_result(url_id) if url_id else None
+            if cached and not cached.get("error"):
+                with state_lock:
+                    cache_state[url_id] = fingerprint
+                cats = cached.get("categories") or []
+                rate_count = sum(len(c.get("rates") or []) for c in cats)
+                progress_log(
+                    f"↻ {bank_name}: unchanged since {fingerprint.get('last_changed_at') or 'previous run'} — "
+                    f"reused cached result ({rate_count} rate{'s' if rate_count != 1 else ''}). 0 tokens used.",
+                    level="success",
+                    bank=bank_name,
+                )
+                # Return a copy so we don't mutate the on-disk snapshot.
+                reused = dict(cached)
+                reused["unchanged"] = True
+                reused["last_changed_at"] = fingerprint.get("last_changed_at")
+                reused["di_pages"] = 0
+                return idx, reused
+            # No usable cache — fall through to full scrape.
+            logger.info(
+                "%s: 304/hash-match but no cached result — full scrape", bank_name
+            )
+
         result = scrape_bank_url(
             agents_client=agents_client,
             agent_id=agent.id,
@@ -671,6 +713,12 @@ def scrape_all_urls(urls: list[dict]) -> list[dict]:
                 level="success",
                 bank=bank_name,
             )
+            # Persist the successful result + fingerprint so the next run can
+            # short-circuit if the bank hasn't republished its rate page.
+            if url_id:
+                save_cached_result(url_id, result)
+                with state_lock:
+                    cache_state[url_id] = fingerprint
         return idx, result
 
     try:
@@ -704,14 +752,32 @@ def scrape_all_urls(urls: list[dict]) -> list[dict]:
 
     total_di_pages = get_di_page_count()
     logger.info("Total tokens used: %s  DI pages: %d", total_usage, total_di_pages)
+
+    # Persist any fingerprint updates collected by the workers so the next
+    # run can short-circuit unchanged banks.
+    try:
+        save_state(cache_state)
+    except Exception as e:
+        logger.warning("Failed to save url_state.json: %s", e)
+
     success_count = sum(1 for r in results if not r.get("error"))
-    progress_log(
-        f"All done. Successfully extracted rates from {success_count} of {total_banks} banks. "
-        f"Total tokens used: {total_usage.get('total_tokens', 0):,}.",
-        level="success",
-    )
+    unchanged_count = sum(1 for r in results if r and r.get("unchanged"))
+    if unchanged_count:
+        progress_log(
+            f"All done. {success_count} of {total_banks} banks succeeded "
+            f"({unchanged_count} unchanged — reused from cache, 0 tokens). "
+            f"Total tokens used: {total_usage.get('total_tokens', 0):,}.",
+            level="success",
+        )
+    else:
+        progress_log(
+            f"All done. Successfully extracted rates from {success_count} of {total_banks} banks. "
+            f"Total tokens used: {total_usage.get('total_tokens', 0):,}.",
+            level="success",
+        )
     return {
         "results": results,
         "token_usage": total_usage,
         "di_pages": total_di_pages,
+        "unchanged_count": unchanged_count,
     }
