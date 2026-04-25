@@ -1,7 +1,1 @@
-azure-functions
-azure-identity
-azure-storage-blob
-azure-ai-projects
-azure-ai-agents
-openpyxl
-python-dotenv
+azure-functionsazure-identityazure-storage-blobazure-ai-projectsazure-ai-agentsazure-ai-documentintelligenceopenpyxlpython-dotenvplaywright

@@ -18,6 +18,10 @@ frontend/build/
 # Environment
 .env
 
+# Generated scrape results (json + xlsx) — never commit
+**/_local_results/
+*.xlsx
+
 # IDE
 .vscode/
 .idea/
