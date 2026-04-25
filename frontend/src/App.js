@@ -148,7 +148,12 @@ function App() {
       const data = await res.json();
       if (res.ok) {
         setResults(data);
-        setMessage(`Fetch complete! ${data.bank_count} banks processed.`);
+        if (data.cancelled) {
+          const done = (data.bank_count || 0) - (data.cancelled_count || 0);
+          setMessage(`⏹️ Fetch cancelled. ${done} of ${data.bank_count} banks completed before stop.`);
+        } else {
+          setMessage(`Fetch complete! ${data.bank_count} banks processed.`);
+        }
       } else {
         setMessage(data.error || 'Fetch failed');
       }

@@ -781,7 +781,13 @@ def scrape_all_urls(urls: list[dict]) -> list[dict]:
         # Note: per-bank di_pages is not reliable under parallel execution
         # (the global counter advances across threads). Total is still correct.
         result["di_pages"] = None
-        if result.get("error"):
+        if result.get("cancelled"):
+            progress_log(
+                f"⏹️ {bank_name}: cancelled by user mid-extraction.",
+                level="warn",
+                bank=bank_name,
+            )
+        elif result.get("error"):
             progress_log(
                 f"{bank_name}: could not extract rates — {result.get('reason') or result.get('error')}",
                 level="warn",
@@ -844,7 +850,16 @@ def scrape_all_urls(urls: list[dict]) -> list[dict]:
 
     success_count = sum(1 for r in results if not r.get("error"))
     unchanged_count = sum(1 for r in results if r and r.get("unchanged"))
-    if unchanged_count:
+    cancelled_count = sum(1 for r in results if r and r.get("cancelled"))
+    was_cancelled = progress_is_cancelled() or cancelled_count > 0
+    if was_cancelled:
+        progress_log(
+            f"⏹️ Run cancelled by user. Completed {success_count} of {total_banks} banks "
+            f"before stop ({cancelled_count} skipped). "
+            f"Total tokens used: {total_usage.get('total_tokens', 0):,}.",
+            level="warn",
+        )
+    elif unchanged_count:
         progress_log(
             f"All done. {success_count} of {total_banks} banks succeeded "
             f"({unchanged_count} unchanged — reused from cache, 0 tokens). "
@@ -862,4 +877,6 @@ def scrape_all_urls(urls: list[dict]) -> list[dict]:
         "token_usage": total_usage,
         "di_pages": total_di_pages,
         "unchanged_count": unchanged_count,
+        "cancelled": was_cancelled,
+        "cancelled_count": cancelled_count,
     }
