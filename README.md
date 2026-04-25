@@ -14,7 +14,7 @@ An AI-powered Fixed Deposit rate aggregator for Indian banks. Uses **Azure AI Fo
 - **Run-id locked activity** — when you press Scrape, the dashboard and activity log clear and the poller locks onto the new `run_id`, ignoring stale events from prior runs.
 - **Server-side reset** — the Reset button now also calls `DELETE /api/results/latest`, removing the cached `latest.json` (local + blob) so a refresh will not repopulate the dashboard.
 - **Connection-drop recovery** — if the browser fetch times out while the backend is still scraping, the UI polls until the backend reports `running:false` and then loads the result.
-- **20 banks pre-configured** in `backend/urls.json`.
+
 
 ---
 
