@@ -33,7 +33,8 @@ An AI-powered Fixed Deposit rate aggregator for Indian banks. Uses **Azure AI Fo
 11. [UI Features](#ui-features)
 12. [Blob Storage Contents](#blob-storage-contents)
 13. [Production Deployment](#production-deployment)
-14. [Troubleshooting](#troubleshooting)
+14. [Responsible Fetching (robots.txt)](#responsible-fetching-robotstxt)
+15. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -144,7 +145,8 @@ fd-rates-with-foundary/
 │       ├── fd_rate_agent.py    ← Core Foundry agent + tool-call loop
 │       ├── dynamic_fetch.py    ← Playwright headless Chromium renderer
 │       ├── asset_extractors.py ← Azure DI `prebuilt-layout` for PDFs / images
-│       └── progress.py         ← Thread-safe live progress event buffer
+│       ├── progress.py         ← Thread-safe live progress event buffer
+│       └── robots.py           ← robots.txt compliance (cached, thread-safe)
 │
 ├── frontend/
 │   ├── package.json
@@ -212,6 +214,14 @@ Thread-safe live progress event buffer. Exposes:
 - `log(message)` — appends `{ts, message}` event.
 - `mark_done()` — sets `running=False`.
 - `snapshot(since=N)` — returns `{run_id, running, total, events[since:]}` for incremental polling.
+
+### `backend/agent/robots.py`
+
+Wraps `urllib.robotparser.RobotFileParser` with a thread-safe per-origin in-memory cache. Exposes:
+
+- `is_allowed(url) -> (bool, reason)` — returns `(True, "allowed by robots.txt")` or `(False, "disallowed by robots.txt for UA '...'")`. On network/parse error, returns `(True, "robots.txt unavailable")` per RFC 9309.
+
+Config: `ROBOTS_RESPECT` (default `true`) and `ROBOTS_USER_AGENT` (default `FDRateAggregator`). See [Responsible Fetching](#responsible-fetching-robotstxt) for full details.
 
 ---
 
@@ -676,11 +686,55 @@ The `backend/function_app.py` file implements the same API using **Azure Functio
 
 ---
 
+## Responsible Fetching (`robots.txt`)
+
+Every outbound HTTP request the agent makes — HTML page fetches, Playwright re-renders, and PDF/image downloads — first consults the origin's `/robots.txt`. Disallowed URLs are skipped **before** any network call is made and **before** any agent tokens are spent.
+
+### How it works
+
+`backend/agent/robots.py` wraps Python's standard `urllib.robotparser.RobotFileParser` with:
+
+- **Per-origin in-memory cache** — `robots.txt` is fetched once per process per host, then re-used across all subsequent calls (and worker threads).
+- **Thread-safe** — guarded by a `threading.Lock`, safe for the parallel ThreadPoolExecutor.
+- **Fail-open by RFC 9309** — if `robots.txt` returns 4xx, treat as allow-all; if it returns 5xx / network error / parse error, default-allow with a warning.
+- **8-second timeout** on the `robots.txt` fetch itself.
+
+### Where it's enforced
+
+1. **Pre-flight per bank** in `scrape_all_urls._scrape_one()` — short-circuits before creating a thread, so blocked banks consume **zero** agent tokens.
+2. **Defense-in-depth in `fetch_webpage_handler()`** — guards `requests.get()` and the Playwright fallback.
+3. **Defense-in-depth in `asset_extractors._download()`** — guards every PDF and image download triggered by the `fetch_pdf` / `fetch_image` tools.
+
+### Configuration
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `ROBOTS_RESPECT` | `true` | Set to `false`/`0`/`no`/`off` to bypass entirely (not recommended for production). |
+| `ROBOTS_USER_AGENT` | `FDRateAggregator` | User-agent string matched against `User-agent:` rules in the bank's `robots.txt`. Most bank sites use `*` rules, which always match. |
+
+### What the user sees when blocked
+
+- **Activity log (live)** — amber `⛔` warning with the URL, the reason, and the override hint.
+- **Summary tab** — a distinct **"⛔ Blocked"** pill (separate from "✖ Failed") and the reason inline.
+- **Rates tab → expanded bank** — amber callout: *"Blocked by robots.txt — no fetch was attempted, no tokens used."*
+- **JSON result** — `{"blocked_by_robots": true, "error": "Blocked by robots.txt", "reason": "..."}`.
+
+### Verifying compliance
+
+```powershell
+# Test against a real bank URL
+python -c "from backend.agent.robots import is_allowed; print(is_allowed('https://www.hdfcbank.com/personal/resources/rates'))"
+# Expected: (True, 'allowed by robots.txt')
+```
+
+---
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | `AuthorizationFailure` on blob upload | Missing RBAC role, not logged in, or storage `publicNetworkAccess: Disabled` | `az login --use-device-code`; verify `Storage Blob Data Contributor` role; ensure `publicNetworkAccess` is `Enabled` (`az storage account update -g rg-fd-rates -n fdratesstxf6etxfnua6lq --public-network-access Enabled`) |
+| Bank shows "⛔ Blocked by robots.txt" | The site's `/robots.txt` disallows your `ROBOTS_USER_AGENT` for that path | Verify by visiting `https://<bank-domain>/robots.txt` and looking for matching `Disallow:` rules. Either update the URL in `urls.json` to a permitted page, contact the bank for an exception, or (last resort, not recommended) set `ROBOTS_RESPECT=false`. |
 | `json.JSONDecodeError` from agent | Model returned markdown or conversational text | Handled automatically by `_parse_agent_response` — check logs for "retry" messages |
 | `requires_action` never resolves | Tool output not submitted correctly | Verify `tool_call.id` is passed correctly to `submit_tool_outputs` |
 | Empty results / `error` key in result | Bank site is JS-rendered or PDF-based and fallback didn't trigger | Check the activity log for "Playwright fallback" / "DI extract" messages; lower `MIN_PERCENT_SIGNS` in `fd_rate_agent.py` if needed |
