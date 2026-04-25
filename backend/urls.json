@@ -1,1 +1,122 @@
-[  {    "id": "39403dea-9c93-40c9-8c1e-00db24a157a0",    "url": "https://www.icici.bank.in/nri-banking/deposits/fcnr-rfc/fcnr-rfc-interest-rates",    "bank_name": "ICICI Bank - FCNR/RFC",    "created_at": "2026-04-24T14:33:48.367941+00:00"  },  {    "id": "9abfe1b6-8acc-4e18-8a02-18cd11647bb8",    "url": "https://www.kotak.com/en/personal-banking/deposits/fixed-deposit/fixed-deposit-interest-rate.html",    "bank_name": "Kotak - FD (Domestic)",    "created_at": "2026-04-24T14:33:48.367941+00:00"  },  {    "id": "14feed6c-f829-47be-9156-c4f4fb95f3bf",    "url": "https://www.kotak.com/en/personal-banking/nri/accounts-deposits/deposits/fcnr-deposits/interest-rates.html",    "bank_name": "Kotak - FCNR",    "created_at": "2026-04-24T14:33:48.367941+00:00"  },  {    "id": "702bd596-05e6-4eae-a2c7-86ee8ebb1e6e",    "url": "https://www.indusind.com/in/en/personal/rates.html",    "bank_name": "IndusInd - Rates",    "created_at": "2026-04-24T14:33:48.367941+00:00"  },  {    "id": "9099f212-aa00-406b-9e66-127a2c945adc",    "url": "https://sbi.co.in/web/interest-rates/deposit-rates/retail-domestic-term-deposits",    "bank_name": "SBI - Retail Domestic Term Deposits",    "created_at": "2026-04-24T14:33:48.367941+00:00"  },  {    "id": "ad3f99fd-69f8-4a77-8b12-ccc5aa81f9b6",    "url": "https://sbi.co.in/web/interest-rates/interest-rates/sbi-nri-services-interest-rates/sbi-nri-services-fcnr-deposit-interest-rate",    "bank_name": "SBI - FCNR",    "created_at": "2026-04-24T14:33:48.367941+00:00"  },  {    "id": "4e0358b4-697c-4885-ad58-cddb6c6e6459",    "url": "https://sbi.co.in/web/interest-rates/savings-bank-deposits",    "bank_name": "SBI - Savings",    "created_at": "2026-04-24T14:33:48.367941+00:00"  },  {    "id": "7600d3b1-9f7b-470b-8729-3869ec572349",    "url": "https://www.hdfcbank.com/personal/save/deposits/fixed-deposit-interest-rate",    "bank_name": "HDFC Bank - FD",    "created_at": "2026-04-24T14:33:48.367941+00:00"  },  {    "id": "b7f1af56-2cd3-425d-ac31-569d12aae0f1",    "url": "https://www.hdfc.bank.in/interest-rates",    "bank_name": "HDFC Bank - Interest Rates",    "created_at": "2026-04-24T14:33:48.367941+00:00"  },  {    "id": "5ea52fce-4de5-47c4-80cf-9739fc81eada",    "url": "https://www.pnbindia.in/interest-rates-bulk-deposit.html",    "bank_name": "PNB - Bulk Deposit",    "created_at": "2026-04-24T14:33:48.367941+00:00"  },  {    "id": "079b9569-fab9-4ecd-b69c-08a3a4ebf804",    "url": "https://pnb.bank.in/Interest-Rates-Deposit.html",    "bank_name": "PNB - Deposit Rates",    "created_at": "2026-04-24T14:33:48.367941+00:00"  },  {    "id": "4c1c1def-e684-4a54-b66f-6198b1bdafdc",    "url": "https://www.indianbank.in/departments/interest-rates-for-deposits-of-above-rs-5-00crore/",    "bank_name": "Indian Bank - Above 5 Cr Deposits",    "created_at": "2026-04-24T14:33:48.367941+00:00"  },  {    "id": "bbd3008c-5d4a-4798-be90-48d870a42e8c",    "url": "https://bankofindia.co.in/interest-rate/rupee-term-deposit-rate",    "bank_name": "Bank of India - Rupee Term Deposit",    "created_at": "2026-04-24T14:33:48.367941+00:00"  },  {    "id": "217c8935-4e5a-4b0d-a8d2-1821e3a43096",    "url": "https://bankofindia.bank.in/interest-rate/saving-bank-deposit-rate",    "bank_name": "Bank of India - Savings",    "created_at": "2026-04-24T14:33:48.367941+00:00"  },  {    "id": "609e6fe6-0271-43d2-b447-3c5065c1ae4d",    "url": "https://www.unionbankofindia.co.in/en/details/rate-of-interest",    "bank_name": "Union Bank of India - Rates",    "created_at": "2026-04-24T14:33:48.367941+00:00"  },  {    "id": "201f77ed-a479-49b2-ae2a-a34f6dbbba49",    "url": "https://punjabandsindbank.co.in/module/bulk-deposit-rates",    "bank_name": "Punjab and Sind Bank - Bulk Deposit",    "created_at": "2026-04-24T14:33:48.367941+00:00"  },  {    "id": "d01ea685-77f2-4f80-ae86-e3f9aa214e78",    "url": "https://bankofbaroda.bank.in/interest-rate-and-service-charges/deposits-interest-rates",    "bank_name": "Bank of Baroda - Deposits",    "created_at": "2026-04-24T14:33:48.367941+00:00"  },  {    "id": "f2010d35-9bf8-4f36-a603-fbcc0e00bb2f",    "url": "https://www.indianbank.bank.in/departments/deposit-rates/",    "bank_name": "Indian Bank - Deposit Rates",    "created_at": "2026-04-24T14:33:48.367941+00:00"  },  {    "id": "31348c95-9855-4a8d-8740-42b1320abd8a",    "url": "https://www.canarabank.bank.in/pages/deposit-interest-rates",    "bank_name": "Canara Bank - Deposit Interest",    "created_at": "2026-04-24T14:33:48.367941+00:00"  },  {    "id": "0704cc5d-d83d-46af-a496-867fbfffd69a",    "url": "https://www.icicibank.com/personal-banking/deposits/fixed-deposit/fd-interest-rates",    "bank_name": "ICICI Bank - FD (Domestic)",    "created_at": "2026-04-25T18:54:06.659839+00:00"  }]
+[
+  {
+    "id": "39403dea-9c93-40c9-8c1e-00db24a157a0",
+    "url": "https://www.icici.bank.in/nri-banking/deposits/fcnr-rfc/fcnr-rfc-interest-rates",
+    "bank_name": "ICICI Bank - FCNR/RFC",
+    "created_at": "2026-04-24T14:33:48.367941+00:00"
+  },
+  {
+    "id": "9abfe1b6-8acc-4e18-8a02-18cd11647bb8",
+    "url": "https://www.kotak.com/en/personal-banking/deposits/fixed-deposit/fixed-deposit-interest-rate.html",
+    "bank_name": "Kotak - FD (Domestic)",
+    "created_at": "2026-04-24T14:33:48.367941+00:00"
+  },
+  {
+    "id": "14feed6c-f829-47be-9156-c4f4fb95f3bf",
+    "url": "https://www.kotak.com/en/personal-banking/nri/accounts-deposits/deposits/fcnr-deposits/interest-rates.html",
+    "bank_name": "Kotak - FCNR",
+    "created_at": "2026-04-24T14:33:48.367941+00:00"
+  },
+  {
+    "id": "702bd596-05e6-4eae-a2c7-86ee8ebb1e6e",
+    "url": "https://www.indusind.com/in/en/personal/rates.html",
+    "bank_name": "IndusInd - Rates",
+    "created_at": "2026-04-24T14:33:48.367941+00:00"
+  },
+  {
+    "id": "9099f212-aa00-406b-9e66-127a2c945adc",
+    "url": "https://sbi.co.in/web/interest-rates/deposit-rates/retail-domestic-term-deposits",
+    "bank_name": "SBI - Retail Domestic Term Deposits",
+    "created_at": "2026-04-24T14:33:48.367941+00:00"
+  },
+  {
+    "id": "ad3f99fd-69f8-4a77-8b12-ccc5aa81f9b6",
+    "url": "https://sbi.co.in/web/interest-rates/interest-rates/sbi-nri-services-interest-rates/sbi-nri-services-fcnr-deposit-interest-rate",
+    "bank_name": "SBI - FCNR",
+    "created_at": "2026-04-24T14:33:48.367941+00:00"
+  },
+  {
+    "id": "4e0358b4-697c-4885-ad58-cddb6c6e6459",
+    "url": "https://sbi.co.in/web/interest-rates/savings-bank-deposits",
+    "bank_name": "SBI - Savings",
+    "created_at": "2026-04-24T14:33:48.367941+00:00"
+  },
+  {
+    "id": "7600d3b1-9f7b-470b-8729-3869ec572349",
+    "url": "https://www.hdfcbank.com/personal/save/deposits/fixed-deposit-interest-rate",
+    "bank_name": "HDFC Bank - FD",
+    "created_at": "2026-04-24T14:33:48.367941+00:00"
+  },
+  {
+    "id": "b7f1af56-2cd3-425d-ac31-569d12aae0f1",
+    "url": "https://www.hdfc.bank.in/interest-rates",
+    "bank_name": "HDFC Bank - Interest Rates",
+    "created_at": "2026-04-24T14:33:48.367941+00:00"
+  },
+  {
+    "id": "5ea52fce-4de5-47c4-80cf-9739fc81eada",
+    "url": "https://www.pnbindia.in/interest-rates-bulk-deposit.html",
+    "bank_name": "PNB - Bulk Deposit",
+    "created_at": "2026-04-24T14:33:48.367941+00:00"
+  },
+  {
+    "id": "079b9569-fab9-4ecd-b69c-08a3a4ebf804",
+    "url": "https://pnb.bank.in/Interest-Rates-Deposit.html",
+    "bank_name": "PNB - Deposit Rates",
+    "created_at": "2026-04-24T14:33:48.367941+00:00"
+  },
+  {
+    "id": "4c1c1def-e684-4a54-b66f-6198b1bdafdc",
+    "url": "https://www.indianbank.in/departments/interest-rates-for-deposits-of-above-rs-5-00crore/",
+    "bank_name": "Indian Bank - Above 5 Cr Deposits",
+    "created_at": "2026-04-24T14:33:48.367941+00:00"
+  },
+  {
+    "id": "bbd3008c-5d4a-4798-be90-48d870a42e8c",
+    "url": "https://bankofindia.co.in/interest-rate/rupee-term-deposit-rate",
+    "bank_name": "Bank of India - Rupee Term Deposit",
+    "created_at": "2026-04-24T14:33:48.367941+00:00"
+  },
+  {
+    "id": "217c8935-4e5a-4b0d-a8d2-1821e3a43096",
+    "url": "https://bankofindia.bank.in/interest-rate/saving-bank-deposit-rate",
+    "bank_name": "Bank of India - Savings",
+    "created_at": "2026-04-24T14:33:48.367941+00:00"
+  },
+  {
+    "id": "609e6fe6-0271-43d2-b447-3c5065c1ae4d",
+    "url": "https://www.unionbankofindia.co.in/en/details/rate-of-interest",
+    "bank_name": "Union Bank of India - Rates",
+    "created_at": "2026-04-24T14:33:48.367941+00:00"
+  },
+  {
+    "id": "201f77ed-a479-49b2-ae2a-a34f6dbbba49",
+    "url": "https://punjabandsindbank.co.in/module/bulk-deposit-rates",
+    "bank_name": "Punjab and Sind Bank - Bulk Deposit",
+    "created_at": "2026-04-24T14:33:48.367941+00:00"
+  },
+  {
+    "id": "d01ea685-77f2-4f80-ae86-e3f9aa214e78",
+    "url": "https://bankofbaroda.bank.in/interest-rate-and-service-charges/deposits-interest-rates",
+    "bank_name": "Bank of Baroda - Deposits",
+    "created_at": "2026-04-24T14:33:48.367941+00:00"
+  },
+  {
+    "id": "f2010d35-9bf8-4f36-a603-fbcc0e00bb2f",
+    "url": "https://www.indianbank.bank.in/departments/deposit-rates/",
+    "bank_name": "Indian Bank - Deposit Rates",
+    "created_at": "2026-04-24T14:33:48.367941+00:00"
+  },
+  {
+    "id": "31348c95-9855-4a8d-8740-42b1320abd8a",
+    "url": "https://www.canarabank.bank.in/pages/deposit-interest-rates",
+    "bank_name": "Canara Bank - Deposit Interest",
+    "created_at": "2026-04-24T14:33:48.367941+00:00"
+  },
+  {
+    "id": "0704cc5d-d83d-46af-a496-867fbfffd69a",
+    "url": "https://www.icicibank.com/personal-banking/deposits/fixed-deposit/fd-interest-rates",
+    "bank_name": "ICICI Bank - FD (Domestic)",
+    "created_at": "2026-04-25T18:54:06.659839+00:00"
+  }
+]
