@@ -1,12 +1,14 @@
 """
-FD Rate Scraper Agent — Uses Microsoft Foundry with Bing Grounding
+FD Rate Aggregator Agent — Uses Microsoft Foundry with Bing Grounding
 to extract Fixed Deposit rates from Indian bank websites.
 """
 
 import json
 import logging
 import os
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urljoin
 
 import requests
@@ -578,50 +580,67 @@ def scrape_all_urls(urls: list[dict]) -> list[dict]:
     )
 
     agent = create_agent(agents_client)
-    results = []
+    results: list[dict | None] = [None] * len(urls)
     total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    usage_lock = threading.Lock()
     reset_di_page_count()
-    di_pages_before = 0
 
     total_banks = len(urls)
+    # Tunable parallelism. Default 4 — a good tradeoff for Foundry/DI quotas.
+    max_workers = int(os.environ.get("SCRAPE_MAX_WORKERS", "4") or "4")
+    max_workers = max(1, min(max_workers, total_banks)) if total_banks > 0 else 1
     progress_log(
-        f"Starting scrape for {total_banks} bank{'s' if total_banks != 1 else ''}."
+        f"Starting fetch for {total_banks} bank{'s' if total_banks != 1 else ''} "
+        f"({max_workers} in parallel)."
     )
-    try:
-        for idx, entry in enumerate(urls, start=1):
-            bank_name = entry["bank_name"]
-            logger.info("Scraping: %s (%s)", bank_name, entry["url"])
-            progress_log(
-                f"[{idx}/{total_banks}] Starting {bank_name}...", bank=bank_name
-            )
-            di_pages_before = get_di_page_count()
-            result = scrape_bank_url(
-                agents_client=agents_client,
-                agent_id=agent.id,
-                url=entry["url"],
-                bank_name=entry["bank_name"],
-            )
-            # Accumulate token usage and remove from per-bank result
-            bank_usage = result.pop("_token_usage", {})
+
+    def _scrape_one(idx: int, entry: dict) -> tuple[int, dict]:
+        bank_name = entry["bank_name"]
+        logger.info("Fetching: %s (%s)", bank_name, entry["url"])
+        progress_log(
+            f"[{idx + 1}/{total_banks}] Starting {bank_name}...", bank=bank_name
+        )
+        result = scrape_bank_url(
+            agents_client=agents_client,
+            agent_id=agent.id,
+            url=entry["url"],
+            bank_name=bank_name,
+        )
+        bank_usage = result.pop("_token_usage", {})
+        with usage_lock:
             for key in total_usage:
                 total_usage[key] += bank_usage.get(key, 0)
-            # Per-bank DI page count (for cost visibility)
-            result["di_pages"] = get_di_page_count() - di_pages_before
-            results.append(result)
-            if result.get("error"):
-                progress_log(
-                    f"{bank_name}: could not extract rates — {result.get('reason') or result.get('error')}",
-                    level="warn",
-                    bank=bank_name,
-                )
-            else:
-                cats = result.get("categories") or []
-                rate_count = sum(len(c.get("rates") or []) for c in cats)
-                progress_log(
-                    f"{bank_name}: extracted {rate_count} rate{'s' if rate_count != 1 else ''} across {len(cats)} categor{'ies' if len(cats) != 1 else 'y'}.",
-                    level="success",
-                    bank=bank_name,
-                )
+        # Note: per-bank di_pages is not reliable under parallel execution
+        # (the global counter advances across threads). Total is still correct.
+        result["di_pages"] = None
+        if result.get("error"):
+            progress_log(
+                f"{bank_name}: could not extract rates — {result.get('reason') or result.get('error')}",
+                level="warn",
+                bank=bank_name,
+            )
+        else:
+            cats = result.get("categories") or []
+            rate_count = sum(len(c.get("rates") or []) for c in cats)
+            progress_log(
+                f"{bank_name}: extracted {rate_count} rate{'s' if rate_count != 1 else ''} across {len(cats)} categor{'ies' if len(cats) != 1 else 'y'}.",
+                level="success",
+                bank=bank_name,
+            )
+        return idx, result
+
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            futures = [
+                ex.submit(_scrape_one, idx, entry) for idx, entry in enumerate(urls)
+            ]
+            for fut in as_completed(futures):
+                try:
+                    idx, result = fut.result()
+                    results[idx] = result
+                except Exception as e:
+                    logger.exception("Worker failed: %s", e)
+                    progress_log(f"Worker failed: {e}", level="warn")
     finally:
         # Clean up agent
         try:
@@ -629,6 +648,15 @@ def scrape_all_urls(urls: list[dict]) -> list[dict]:
             logger.info("Deleted agent: %s", agent.id)
         except Exception as e:
             logger.warning("Failed to delete agent: %s", e)
+
+    # Replace any remaining None slots (worker exception) with error stubs
+    for i, r in enumerate(results):
+        if r is None:
+            results[i] = {
+                "bank_name": urls[i].get("bank_name"),
+                "url": urls[i].get("url"),
+                "error": "Worker failed",
+            }
 
     total_di_pages = get_di_page_count()
     logger.info("Total tokens used: %s  DI pages: %d", total_usage, total_di_pages)
