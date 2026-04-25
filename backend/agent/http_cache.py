@@ -202,13 +202,13 @@ def check_unchanged(
             "probe_error": "force_refresh",
         }
 
-    # No prior fingerprint = nothing to compare against = must fetch.
-    if not prior or not (
-        prior.get("etag") or prior.get("last_modified") or prior.get("sha256")
-    ):
-        return False, {**prior, "last_checked_at": now_iso}
-
     # Build conditional headers from whatever the server gave us last time.
+    # On the very first run `prior` is empty, so we send an unconditional GET
+    # — the response still gives us the etag / last-modified / body hash we
+    # need to *seed* the cache so the next run can short-circuit.
+    has_prior_fingerprint = bool(
+        prior.get("etag") or prior.get("last_modified") or prior.get("sha256")
+    )
     headers = dict(_HEADERS_BASE)
     if prior.get("etag"):
         headers["If-None-Match"] = prior["etag"]
