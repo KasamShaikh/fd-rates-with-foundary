@@ -1,3 +1,6 @@
+// ExportButton — triggers POST /api/export-excel which converts the latest
+// fetch result into a styled .xlsx workbook (one sheet per bank) and uploads
+// it to Blob Storage. Disabled until at least one fetch run has saved results.
 import React from 'react';
 
 function ExportButton({ onClick, loading, disabled }) {

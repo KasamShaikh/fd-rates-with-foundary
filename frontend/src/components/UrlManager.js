@@ -1,9 +1,19 @@
+// UrlManager — sidebar component for managing the configured bank URL list.
+//
+// Lets the user:
+//   * add a new (bank_name, url) pair via the form (calls `onAdd`)
+//   * tick which URLs to include in the next fetch (calls `onToggle` /
+//     `onSelectAll` / `onSelectNone`; an empty selection means "fetch all")
+//   * delete an entry (calls `onDelete`)
+// The component is purely presentational — all persistence happens in the
+// parent <App /> via the API.
 import React, { useState, useMemo } from 'react';
 
 function UrlManager({ urls, onAdd, onDelete, selectedIds, onToggle, onSelectAll, onSelectNone }) {
   const [url, setUrl] = useState('');
   const [bankName, setBankName] = useState('');
 
+  // Validate then forward the new entry to the parent; clear inputs on success.
   const handleSubmit = (e) => {
     e.preventDefault();
     if (url.trim() && bankName.trim()) {
@@ -13,6 +23,7 @@ function UrlManager({ urls, onAdd, onDelete, selectedIds, onToggle, onSelectAll,
     }
   };
 
+  // Stringify ids so checkbox state survives any number-vs-string id drift.
   const selectedSet = useMemo(
     () => new Set((selectedIds || []).map(String)),
     [selectedIds]

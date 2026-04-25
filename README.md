@@ -34,7 +34,8 @@ An AI-powered Fixed Deposit rate aggregator for Indian banks. Uses **Azure AI Fo
 12. [Blob Storage Contents](#blob-storage-contents)
 13. [Production Deployment](#production-deployment)
 14. [Responsible Fetching (robots.txt)](#responsible-fetching-robotstxt)
-15. [Troubleshooting](#troubleshooting)
+15. [Code Commenting Convention](#code-commenting-convention)
+16. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -726,6 +727,50 @@ Every outbound HTTP request the agent makes — HTML page fetches, Playwright re
 python -c "from backend.agent.robots import is_allowed; print(is_allowed('https://www.hdfcbank.com/personal/resources/rates'))"
 # Expected: (True, 'allowed by robots.txt')
 ```
+
+---
+
+## Code Commenting Convention
+
+Every source file in this repo carries documentation that lets a new developer
+understand it without spelunking. **Please keep this convention in any future
+change** — reviewers will ask for it.
+
+### Required for every file
+
+1. **File header.** First lines of every `.py` / `.js` / `.bicep` / `.ps1`
+   file must explain the module's *purpose* and (when relevant) its *inputs
+   and outputs*. Use docstrings for Python, JSDoc/`//` blocks for JS,
+   `//` for Bicep, and `<# .SYNOPSIS / .DESCRIPTION #>` for PowerShell.
+2. **Function / component docstrings.** Every public function, React
+   component, and Bicep resource block gets a one-paragraph description of
+   what it does, its parameters, and any non-obvious side effects (network
+   calls, file writes, blob uploads, RBAC implications).
+3. **Section dividers.** When a file has multiple logical sections (e.g.,
+   route handlers in `dev_server.py`, resource groups in `main.bicep`),
+   separate them with banner comments (`# ---- ... ----` or `// === ... ===`).
+4. **Inline notes for non-obvious logic.** Add a short comment immediately
+   above any block whose intent isn't visible from the code itself —
+   examples already in the codebase: the *"heuristic for JS-rendered pages"*
+   note in `fetch_webpage_handler`, the *"default-allow per RFC 9309"* note
+   in `robots.py`, the *"reset run_id on mid-poll change"* note in `App.js`.
+
+### Style rules
+
+- **Explain *why*, not *what*.** The code already says what it does;
+  comments should explain reasoning, trade-offs, gotchas, and references.
+- **Keep comments truthful.** If you change behaviour, update the comment in
+  the same commit.
+- **No commented-out code in PRs.** Delete it; git history is the archive.
+- **Prefer one good comment over many small ones.** A clear paragraph at the
+  top of a function beats line-by-line narration.
+
+### Quick checklist before opening a PR
+
+- [ ] Every new/modified file has a header describing its purpose.
+- [ ] Every new public function has a docstring.
+- [ ] Every non-obvious block has a *why* comment.
+- [ ] Existing comments still match the code after your changes.
 
 ---
 

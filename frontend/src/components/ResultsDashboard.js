@@ -1,8 +1,22 @@
+// ResultsDashboard — renders the last fetch run.
+//
+// Two tabs:
+//   * "Rates"    — per-bank collapsible sections with rate tables, filterable
+//                 by customer category (General / Senior / NRE / etc.).
+//   * "Summary"  — high-level stats and a per-bank status table including the
+//                 distinct "Blocked by robots.txt" status pill.
+//
+// Receives the raw payload from `GET /api/results/latest` (or the response of
+// `POST /api/scrape`); shape: { scraped_at, bank_count, token_usage, di_pages,
+// elapsed_seconds, results: [...] }.
 import React, { useState, useMemo } from 'react';
 
 function ResultsDashboard({ results }) {
+  // Per-bank expand/collapse state. Defaulting to expanded (see toggleBank).
   const [expandedBanks, setExpandedBanks] = useState({});
+  // Category chip filter applied to the Rates tab. "All" disables filtering.
   const [categoryFilter, setCategoryFilter] = useState('All');
+  // Which tab is currently visible: 'rates' | 'summary'.
   const [activeTab, setActiveTab] = useState('rates');
 
   const bankResults = results?.results || [];
@@ -45,6 +59,8 @@ function ResultsDashboard({ results }) {
     return { rows, successCount, failCount, totalRates };
   }, [bankResults]);
 
+  // Toggle expand/collapse for one bank section. Note the default-expanded
+  // semantics implemented at the render site (`expandedBanks[idx] !== false`).
   const toggleBank = (idx) => {
     setExpandedBanks((prev) => ({ ...prev, [idx]: !prev[idx] }));
   };

@@ -1,3 +1,17 @@
+// =====================================================================
+// App.js — top-level React component.
+//
+// Owns all global UI state (URL list, fetch results, progress events,
+// selection, status message) and orchestrates calls to the backend API:
+//   GET    /api/urls                — list configured bank URLs
+//   POST   /api/urls                — add a URL
+//   DELETE /api/urls/:id            — remove a URL
+//   POST   /api/scrape              — kick off a fetch run (optionally with `ids`)
+//   GET    /api/scrape/progress     — poll live progress events
+//   GET    /api/results/latest      — fetch the most-recent saved run
+//   DELETE /api/results/latest      — clear the saved run (Reset Screen)
+//   POST   /api/export-excel        — generate styled Excel of latest results
+// =====================================================================
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import UrlManager from './components/UrlManager';
 import ScrapeButton from './components/ScrapeButton';
@@ -6,17 +20,21 @@ import ResultsDashboard from './components/ResultsDashboard';
 import ProgressLog from './components/ProgressLog';
 import './App.css';
 
+// Empty default => same-origin requests (works when frontend is served by the
+// Function App). For local dev we set REACT_APP_API_BASE_URL=http://localhost:7071
+// in .env so the React dev server (:3000) can talk to the Flask backend (:7071).
 const API = process.env.REACT_APP_API_BASE_URL || '';
 
 function App() {
-  const [urls, setUrls] = useState([]);
-  const [results, setResults] = useState(null);
-  const [scraping, setScraping] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const [message, setMessage] = useState('');
-  const [progressEvents, setProgressEvents] = useState([]);
-  const [selectedIds, setSelectedIds] = useState([]);
-  const progressPollRef = useRef(null);
+  // --- Global UI state -------------------------------------------------
+  const [urls, setUrls] = useState([]);              // configured bank URLs
+  const [results, setResults] = useState(null);      // last fetch payload
+  const [scraping, setScraping] = useState(false);   // a fetch run is active
+  const [exporting, setExporting] = useState(false); // Excel export in flight
+  const [message, setMessage] = useState('');        // top status banner text
+  const [progressEvents, setProgressEvents] = useState([]); // live activity feed
+  const [selectedIds, setSelectedIds] = useState([]);// URL ids ticked in sidebar
+  const progressPollRef = useRef(null);              // setInterval handle for progress polling
 
   const fetchUrls = useCallback(async () => {
     try {
