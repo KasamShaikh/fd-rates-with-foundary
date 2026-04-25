@@ -30,6 +30,7 @@ function App() {
   const [urls, setUrls] = useState([]);              // configured bank URLs
   const [results, setResults] = useState(null);      // last fetch payload
   const [scraping, setScraping] = useState(false);   // a fetch run is active
+  const [stopping, setStopping] = useState(false);   // Stop button has been hit; awaiting backend wind-down
   const [exporting, setExporting] = useState(false); // Excel export in flight
   const [message, setMessage] = useState('');        // top status banner text
   const [progressEvents, setProgressEvents] = useState([]); // live activity feed
@@ -182,6 +183,21 @@ function App() {
         progressPollRef.current = null;
       }
       setScraping(false);
+      setStopping(false);
+    }
+  };
+
+  // Ask the backend to cancel the in-flight scrape. Workers will skip any
+  // remaining banks and the current bank's agent run is asked to cancel.
+  const stopScrape = async () => {
+    if (!scraping || stopping) return;
+    setStopping(true);
+    setMessage('Stopping fetch — waiting for the current bank to wind down...');
+    try {
+      await fetch(`${API}/api/scrape/cancel`, { method: 'POST' });
+    } catch {
+      // Backend dropped the request; the run might still wind down on its
+      // own. Don't unset stopping — the scrape's finally{} block will.
     }
   };
 
@@ -240,6 +256,23 @@ function App() {
               selectedCount={selectedIds.length}
               totalCount={urls.length}
             />
+            <button
+              className="btn btn-stop"
+              onClick={stopScrape}
+              disabled={!scraping || stopping}
+              title="Cancel the current fetch run — finishes the in-flight bank's API call as quickly as possible and skips the rest."
+              style={{
+                background: stopping ? '#9ca3af' : '#dc2626',
+                color: 'white',
+                border: 'none',
+                padding: '8px 12px',
+                borderRadius: 6,
+                cursor: scraping && !stopping ? 'pointer' : 'not-allowed',
+                opacity: scraping ? 1 : 0.5,
+              }}
+            >
+              {stopping ? '⏳ Stopping...' : '⏹️ Stop Fetch'}
+            </button>
             <label
               className="force-refresh-toggle"
               title="Bypass the HTTP cache and force a full re-scrape of every selected URL, even if the bank's page hasn't changed since the last run."

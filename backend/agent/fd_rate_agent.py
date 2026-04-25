@@ -29,7 +29,7 @@ from .http_cache import (
     save_cached_result,
     save_state,
 )
-from .progress import log as progress_log
+from .progress import log as progress_log, is_cancelled as progress_is_cancelled
 from .robots import is_allowed as robots_is_allowed
 
 logger = logging.getLogger(__name__)
@@ -406,8 +406,26 @@ def scrape_bank_url(
         top_p=1.0,
     )
 
-    # Poll run status and handle tool calls manually
+    # Poll run status and handle tool calls manually. Bail out early if the
+    # user hit the Stop button so we don't keep racking up tokens.
     while run.status in ["queued", "in_progress"]:
+        if progress_is_cancelled():
+            try:
+                agents_client.runs.cancel(thread_id=thread.id, run_id=run.id)
+            except Exception:
+                pass
+            return {
+                "error": "Cancelled",
+                "bank_name": bank_name,
+                "url": url,
+                "reason": "Run cancelled by user before completion",
+                "cancelled": True,
+                "_token_usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                },
+            }
         time.sleep(1)
         run = agents_client.runs.get(
             thread_id=thread.id,
@@ -485,6 +503,23 @@ def scrape_bank_url(
 
         # Poll until next action or completion
         while run.status in ["queued", "in_progress"]:
+            if progress_is_cancelled():
+                try:
+                    agents_client.runs.cancel(thread_id=thread.id, run_id=run.id)
+                except Exception:
+                    pass
+                return {
+                    "error": "Cancelled",
+                    "bank_name": bank_name,
+                    "url": url,
+                    "reason": "Run cancelled by user mid-extraction",
+                    "cancelled": True,
+                    "_token_usage": {
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0,
+                    },
+                }
             time.sleep(1)
             run = agents_client.runs.get(
                 thread_id=thread.id,
@@ -657,6 +692,21 @@ def scrape_all_urls(urls: list[dict]) -> list[dict]:
     def _scrape_one(idx: int, entry: dict) -> tuple[int, dict]:
         bank_name = entry["bank_name"]
         url_id = str(entry.get("id") or "")
+        # Cancellation short-circuit — if the user hit Stop while this task was
+        # still queued in the executor, bail out before doing any work.
+        if progress_is_cancelled():
+            progress_log(
+                f"⏹️ {bank_name}: skipped — run cancelled by user.",
+                level="warn",
+                bank=bank_name,
+            )
+            return idx, {
+                "bank_name": bank_name,
+                "url": entry["url"],
+                "error": "Cancelled",
+                "reason": "Run cancelled by user before this bank started",
+                "cancelled": True,
+            }
         logger.info("Fetching: %s (%s)", bank_name, entry["url"])
         progress_log(
             f"[{idx + 1}/{total_banks}] Starting {bank_name}...", bank=bank_name

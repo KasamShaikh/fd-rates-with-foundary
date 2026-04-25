@@ -275,6 +275,28 @@ def scrape_progress():
 
 
 # -------------------------------------------------------
+# POST /api/scrape/cancel — request graceful stop of in-flight run
+# -------------------------------------------------------
+@app.route("/api/scrape/cancel", methods=["POST"])
+def scrape_cancel():
+    """Flag the current scrape run for cancellation.
+
+    Workers check this flag between banks (and between agent-poll ticks) and
+    bail out early. The currently-running bank's agent run is asked to cancel
+    too, so token spend stops as quickly as Foundry will allow.
+    """
+    from agent import progress as _progress
+
+    requested = _progress.cancel()
+    if requested:
+        _progress.log(
+            "⏹️ Stop requested — cancelling current bank and skipping the rest.",
+            level="warn",
+        )
+    return jsonify({"cancelled": requested})
+
+
+# -------------------------------------------------------
 # GET /api/results/latest
 # -------------------------------------------------------
 @app.route("/api/results/latest", methods=["GET"])
