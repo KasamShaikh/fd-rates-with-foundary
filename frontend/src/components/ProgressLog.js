@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 
 /**
- * Live activity feed for the currently-running scrape.
+ * Live activity feed for the currently-running fetch.
  * Polls /api/scrape/progress every ~1.5s while `active` is true.
  */
 function ProgressLog({ events, active, onDone }) {

@@ -46,7 +46,7 @@ function UrlManager({ urls, onAdd, onDelete, selectedIds, onToggle, onSelectAll,
           <div className="url-select-bar">
             <span className="url-select-count">
               {noneSelected
-                ? `All ${urls.length} will be scraped`
+                ? `All ${urls.length} will be fetched`
                 : `${selectedSet.size} of ${urls.length} selected`}
             </span>
             <div className="url-select-actions">
@@ -77,7 +77,7 @@ function UrlManager({ urls, onAdd, onDelete, selectedIds, onToggle, onSelectAll,
                   key={item.id}
                   className={`url-item ${checked ? 'url-item-selected' : ''}`}
                 >
-                  <label className="url-checkbox" title="Include this URL in the next scrape">
+                  <label className="url-checkbox" title="Include this URL in the next fetch">
                     <input
                       type="checkbox"
                       checked={checked}

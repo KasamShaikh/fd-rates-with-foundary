@@ -1,12 +1,12 @@
 import React from 'react';
 
 function ScrapeButton({ onClick, loading, disabled, selectedCount = 0, totalCount = 0 }) {
-  const willScrapeAll = selectedCount === 0;
+  const willFetchAll = selectedCount === 0;
   const label = loading
-    ? 'Scraping...'
-    : willScrapeAll
-    ? `🔍 Scrape All Banks${totalCount ? ` (${totalCount})` : ''}`
-    : `🔍 Scrape Selected (${selectedCount})`;
+    ? 'Fetching...'
+    : willFetchAll
+    ? `🔍 Fetch All Banks${totalCount ? ` (${totalCount})` : ''}`
+    : `🔍 Fetch Selected (${selectedCount})`;
 
   return (
     <button
@@ -14,9 +14,9 @@ function ScrapeButton({ onClick, loading, disabled, selectedCount = 0, totalCoun
       onClick={onClick}
       disabled={loading || disabled}
       title={
-        willScrapeAll
-          ? 'No URLs selected — all configured URLs will be scraped'
-          : `Scrape only the ${selectedCount} selected URL${selectedCount === 1 ? '' : 's'}`
+        willFetchAll
+          ? 'No URLs selected — rates will be fetched for all configured URLs'
+          : `Fetch rates only for the ${selectedCount} selected URL${selectedCount === 1 ? '' : 's'}`
       }
     >
       {loading && <span className="spinner" />}

@@ -180,7 +180,7 @@ def scrape_all():
             }
         ), 503
 
-    logger.info("Starting scrape for %d URLs", len(urls))
+    logger.info("Starting fetch for %d URLs", len(urls))
     from agent import progress as _progress
 
     _progress.reset()
@@ -191,10 +191,10 @@ def scrape_all():
     try:
         scrape_output = scrape_all_urls(urls)
     except Exception as e:
-        logger.exception("Scrape failed")
-        _progress.log(f"Scrape failed: {e}", level="error")
+        logger.exception("Fetch failed")
+        _progress.log(f"Fetch failed: {e}", level="error")
         _progress.mark_done()
-        return jsonify({"error": f"Scrape failed: {e}"}), 500
+        return jsonify({"error": f"Fetch failed: {e}"}), 500
     finally:
         elapsed_seconds = round(_time.monotonic() - _t0, 1)
         mins, secs = divmod(int(elapsed_seconds), 60)
@@ -235,7 +235,7 @@ def scrape_all():
     _upload_to_blob(f"fd_rates_{ts_str}.json", payload_bytes, "application/json")
     _upload_to_blob("latest.json", payload_bytes, "application/json")
 
-    logger.info("Scrape complete.")
+    logger.info("Fetch complete.")
     return jsonify(payload)
 
 
@@ -450,6 +450,6 @@ def export_excel():
 
 
 if __name__ == "__main__":
-    print("\n  FD Rate Scraper — Dev Server")
+    print("\n  FD Rate Aggregator — Dev Server")
     print("  http://localhost:7071\n")
     app.run(host="0.0.0.0", port=7071, debug=True)

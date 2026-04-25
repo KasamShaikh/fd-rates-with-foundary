@@ -129,7 +129,7 @@ def scrape_all(req: func.HttpRequest) -> func.HttpResponse:
                 {"error": "None of the selected URL ids match configured URLs."}, 400
             )
 
-    logger.info("Starting scrape for %d URLs", len(urls))
+    logger.info("Starting fetch for %d URLs", len(urls))
     import time as _time
 
     _t0 = _time.monotonic()
@@ -183,7 +183,7 @@ def scrape_all(req: func.HttpRequest) -> func.HttpResponse:
         overwrite=True,
     )
 
-    logger.info("Scrape complete. Results uploaded to Blob Storage.")
+    logger.info("Fetch complete. Results uploaded to Blob Storage.")
     return _json_response(payload)
 
 

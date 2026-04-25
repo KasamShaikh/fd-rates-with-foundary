@@ -52,7 +52,7 @@ function ResultsDashboard({ results }) {
     return (
       <div className="card results-empty">
         <h2>📈 Results Dashboard</h2>
-        <p>No results yet. Add bank URLs and run a scrape to see FD rates here.</p>
+        <p>No results yet. Add bank URLs and run a fetch to see FD rates here.</p>
       </div>
     );
   }
@@ -63,7 +63,7 @@ function ResultsDashboard({ results }) {
     <div className="card">
       <h2>📈 Results Dashboard</h2>
       <div className="meta-info">
-        Scraped at: {results.scraped_at} | Banks: {results.bank_count}
+        Fetched at: {results.scraped_at} | Banks: {results.bank_count}
         {typeof results.di_pages === 'number' && ` | DI pages: ${results.di_pages}`}
         {typeof results.elapsed_seconds === 'number' && ` | Time: ${(() => {
           const total = Math.round(results.elapsed_seconds);

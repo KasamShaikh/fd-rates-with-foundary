@@ -79,8 +79,8 @@ function App() {
     const targetCount = willScrapeAll ? urls.length : selectedIds.length;
     setMessage(
       willScrapeAll
-        ? `Scraping all ${urls.length} URL${urls.length === 1 ? '' : 's'}... watch the live activity below.`
-        : `Scraping ${targetCount} selected URL${targetCount === 1 ? '' : 's'}... watch the live activity below.`
+        ? `Fetching all ${urls.length} URL${urls.length === 1 ? '' : 's'}... watch the live activity below.`
+        : `Fetching ${targetCount} selected URL${targetCount === 1 ? '' : 's'}... watch the live activity below.`
     );
 
     // Start polling progress every 1.5s. We track the backend's run_id and
@@ -125,15 +125,15 @@ function App() {
       const data = await res.json();
       if (res.ok) {
         setResults(data);
-        setMessage(`Scrape complete! ${data.bank_count} banks processed.`);
+        setMessage(`Fetch complete! ${data.bank_count} banks processed.`);
       } else {
-        setMessage(data.error || 'Scrape failed');
+        setMessage(data.error || 'Fetch failed');
       }
     } catch {
       // The HTTP request was dropped (e.g., dev proxy disconnect on long
       // scrapes), but the backend is likely still running. Wait for the
       // server to mark the run as done, then fetch the saved latest result.
-      setMessage('Connection dropped during scrape. Waiting for backend to finish...');
+      setMessage('Connection dropped during fetch. Waiting for backend to finish...');
       const completed = await waitForBackendIdle();
       if (completed) {
         try {
@@ -141,15 +141,15 @@ function App() {
           if (r2.ok) {
             const data2 = await r2.json();
             setResults(data2);
-            setMessage(`Scrape complete! ${data2.bank_count} banks processed.`);
+            setMessage(`Fetch complete! ${data2.bank_count} banks processed.`);
           } else {
-            setMessage('Scrape finished but no results were saved.');
+            setMessage('Fetch finished but no results were saved.');
           }
         } catch {
-          setMessage('Scrape finished but failed to load results.');
+          setMessage('Fetch finished but failed to load results.');
         }
       } else {
-        setMessage('Scrape did not finish within the wait window. Check the activity log.');
+        setMessage('Fetch did not finish within the wait window. Check the activity log.');
       }
     }
     finally {
@@ -187,7 +187,7 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>🏦 FD Rate Scraper</h1>
+        <h1>🏦 FD Rate Aggregator</h1>
         <p className="subtitle">Indian Bank Fixed Deposit Rate Aggregator</p>
       </header>
 
