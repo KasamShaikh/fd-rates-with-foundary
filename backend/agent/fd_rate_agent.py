@@ -23,6 +23,7 @@ from .asset_extractors import (
     reset_di_page_count,
 )
 from .progress import log as progress_log
+from .robots import is_allowed as robots_is_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -248,6 +249,16 @@ def fetch_webpage_handler(url: str) -> str:
     characters), automatically retries via a headless Chromium browser to
     handle JavaScript-rendered rate widgets.
     """
+    # Honour robots.txt before any network call.
+    allowed, reason = robots_is_allowed(url)
+    if not allowed:
+        msg = f"Skipped {url} — {reason}"
+        logger.warning(msg)
+        progress_log(
+            f"Skipping page (robots.txt forbids automated access): {url}", level="warn"
+        )
+        return f"Error fetching {url}: {reason}"
+
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "

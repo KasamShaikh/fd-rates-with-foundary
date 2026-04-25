@@ -4,6 +4,7 @@ An AI-powered Fixed Deposit rate aggregator for Indian banks. Uses **Azure AI Fo
 
 ## What's New
 
+- **robots.txt compliance** — every outbound HTML/PDF/image fetch now consults the origin's `/robots.txt` via `urllib.robotparser` (cached per host) and skips disallowed URLs with a warning. Toggle via `ROBOTS_RESPECT=false`; user-agent matched against rules is `ROBOTS_USER_AGENT` (default `FDRateAggregator`). Default-allow on network/parse errors per RFC 9309.
 - **Parallel fetching (~2.6× faster)** — bank URLs are now processed concurrently with a `ThreadPoolExecutor` (default 4 workers, override via `SCRAPE_MAX_WORKERS`). A single shared Foundry agent is reused across workers, and per-run token usage is aggregated under a `threading.Lock`. End-to-end run for 20 banks dropped from ~527 s to ~201 s in our benchmark.
 - **Playwright fallback** — when a static fetch returns too few rate-like signals (e.g. JS-rendered pages), the agent re-fetches via headless Chromium.
 - **Document Intelligence integration** — PDF circulars and image-based rate cards are processed with Azure DI `prebuilt-layout`; extracted text is returned to the agent.

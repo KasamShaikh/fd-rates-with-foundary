@@ -79,6 +79,12 @@ def _same_origin(asset_url: str, source_url: str) -> bool:
 
 def _download(url: str, max_bytes: int, expect_prefix: str) -> tuple[bytes, str]:
     """Download `url` and return (bytes, content_type). Raises on any failure."""
+    from .robots import is_allowed as _robots_is_allowed
+
+    allowed, reason = _robots_is_allowed(url)
+    if not allowed:
+        raise RuntimeError(f"robots.txt forbids fetching {url}: {reason}")
+
     with requests.get(url, headers=_BROWSER_HEADERS, timeout=30, stream=True) as resp:
         resp.raise_for_status()
         content_type = (
