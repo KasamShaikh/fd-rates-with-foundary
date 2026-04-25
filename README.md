@@ -1,6 +1,18 @@
 ﻿# FD Rate Scraper
 
-An AI-powered Fixed Deposit rate aggregator for Indian banks. Uses **Azure AI Foundry** (`gpt-4.1`) as an intelligent agent with a custom `fetch_webpage` tool to scrape, parse, and structure FD rate data from bank websites. Results are stored in **Azure Blob Storage** and exposed through a **Flask REST API** consumed by a **React** browser UI.
+An AI-powered Fixed Deposit rate aggregator for Indian banks. Uses **Azure AI Foundry** (`gpt-4.1`) as an intelligent agent with a custom `fetch_webpage` tool to scrape, parse, and structure FD rate data from bank websites. JS-rendered pages fall back to a **Playwright** headless browser, and PDFs/images are extracted with **Azure AI Document Intelligence** (`prebuilt-layout`). Results are stored in **Azure Blob Storage** and exposed through a **Flask REST API** consumed by a **React** browser UI with a live progress feed.
+
+## What's New
+
+- **Playwright fallback** — when a static fetch returns too few rate-like signals (e.g. JS-rendered pages), the agent re-fetches via headless Chromium.
+- **Document Intelligence integration** — PDF circulars and image-based rate cards are processed with Azure DI `prebuilt-layout`; extracted text is returned to the agent.
+- **Live progress log** — every scrape emits real-time events (per-URL start, tool calls, retries, completion). The UI polls `/api/scrape/progress` and shows them in an Activity panel.
+- **Total scrape time** — every result payload now includes `elapsed_seconds`; the UI shows `Time: Xm Ys` next to bank/token counts.
+- **Selective scraping** — choose specific banks in the URL manager and click "Scrape Selected" instead of running all.
+- **Run-id locked activity** — when you press Scrape, the dashboard and activity log clear and the poller locks onto the new `run_id`, ignoring stale events from prior runs.
+- **Server-side reset** — the Reset button now also calls `DELETE /api/results/latest`, removing the cached `latest.json` (local + blob) so a refresh will not repopulate the dashboard.
+- **Connection-drop recovery** — if the browser fetch times out while the backend is still scraping, the UI polls until the backend reports `running:false` and then loads the result.
+- **20 banks pre-configured** in `backend/urls.json`.
 
 ---
 
@@ -48,10 +60,15 @@ An AI-powered Fixed Deposit rate aggregator for Indian banks. Uses **Azure AI Fo
 │  Region  : South India                                       │
 │                                                              │
 │  Tool: fetch_webpage(url)                                    │
-│    → requests.get() + BeautifulSoup text extraction          │
+│    1. requests.get() + BeautifulSoup text extraction         │
+│    2. If <MIN_PERCENT_SIGNS rate-like signals →              │
+│         Playwright headless Chromium re-render               │
+│    3. If URL ends in .pdf / image →                          │
+│         Azure AI Document Intelligence (prebuilt-layout)     │
 │    → returns ≤15,000 chars of visible text to the model      │
 │                                                              │
-│  Manual tool-call loop (up to 5 rounds per bank)             │
+│  Manual tool-call loop (up to 8 rounds per bank)             │
+│  Emits progress events to a thread-safe ring buffer          │
 │  Tracks prompt / completion / total token usage per run      │
 └───────────────────────┬─────────────────────────────────────┘
                         │ azure-storage-blob SDK (Entra ID auth)
@@ -75,6 +92,7 @@ An AI-powered Fixed Deposit rate aggregator for Indian banks. Uses **Azure AI Fo
 | AI Services account | `web-tools` | Azure AI Services (Cognitive Services) | South India |
 | AI Foundry project | `prj-web-tools` | AI Foundry Project | South India |
 | Model deployment | `gpt-4.1` | Azure OpenAI gpt-4.1 | South India |
+| Document Intelligence | `fdrates-di-kvihlu` | Azure AI Document Intelligence (`prebuilt-layout`) | Central India |
 | Resource group (AI) | `demo-web-tool` | Resource Group | — |
 | Storage account | `fdratesstxf6etxfnua6lq` | Storage V2 Standard LRS | Central India |
 | Blob container | `fd-rates` | Blob Container | — |
@@ -117,11 +135,14 @@ fd-rates-with-foundary/
 │   ├── host.json               ← Azure Functions host config
 │   ├── local.settings.json     ← Azure Functions local environment variables
 │   ├── requirements.txt        ← Python dependencies
-│   ├── urls.json               ← Persisted bank URL list
-│   ├── _local_results/         ← Local JSON/Excel result cache (dev only)
+│   ├── urls.json               ← Persisted bank URL list (20 banks)
+│   ├── _local_results/         ← Local JSON/Excel result cache (dev only, gitignored)
 │   └── agent/
 │       ├── __init__.py
-│       └── fd_rate_agent.py    ← Core Foundry agent logic
+│       ├── fd_rate_agent.py    ← Core Foundry agent + tool-call loop
+│       ├── dynamic_fetch.py    ← Playwright headless Chromium renderer
+│       ├── asset_extractors.py ← Azure DI `prebuilt-layout` for PDFs / images
+│       └── progress.py         ← Thread-safe live progress event buffer
 │
 ├── frontend/
 │   ├── package.json
@@ -130,10 +151,11 @@ fd-rates-with-foundary/
 │       ├── App.css             ← Global styles (custom colour theme)
 │       ├── index.js
 │       └── components/
-│           ├── UrlManager.js       ← Add / delete bank URLs
-│           ├── ScrapeButton.js     ← Trigger scrape
+│           ├── UrlManager.js       ← Add / delete / select bank URLs
+│           ├── ScrapeButton.js     ← Trigger scrape ("Scrape All" / "Scrape Selected")
 │           ├── ExportButton.js     ← Trigger Excel export
-│           └── ResultsDashboard.js ← Rate tables + token usage bar
+│           ├── ProgressLog.js     ← Live activity log (run-id locked)
+│           └── ResultsDashboard.js ← Rate tables + token usage + elapsed time
 │
 └── infra/
     ├── main.bicep              ← Full infrastructure (storage, functions, AI)
@@ -151,10 +173,10 @@ Core AI agent module.
 | Function | Purpose |
 |---|---|
 | `create_agent(agents_client)` | Creates a Foundry agent with `gpt-4.1` and registers the `fetch_webpage` function tool schema |
-| `fetch_webpage_handler(url)` | Fetches a URL with a Chrome User-Agent; strips HTML via BeautifulSoup (removes `<script>`, `<style>`, `<nav>`, `<header>`, `<footer>`); returns ≤ 15,000 chars of visible text |
-| `scrape_bank_url(...)` | Creates a thread, sends a user message, manually polls `run.status`, handles `requires_action` tool call rounds (max 5), captures `run.usage` token counts |
+| `fetch_webpage_handler(url)` | Three-tier fetch: (1) `requests.get` + BeautifulSoup; (2) if rate-like signals (`%`) below `MIN_PERCENT_SIGNS=20`, re-render with Playwright; (3) if URL is `.pdf` or image, run Document Intelligence `prebuilt-layout`. Returns ≤ 15,000 chars of visible text and emits per-URL progress events. |
+| `scrape_bank_url(...)` | Creates a thread, sends a user message, manually polls `run.status`, handles `requires_action` tool call rounds (max 8), captures `run.usage` token counts |
 | `_parse_agent_response(...)` | Strips markdown fences, attempts `json.loads()`, falls back to substring extraction between first `{` and last `}`, triggers a single auto-retry if both fail |
-| `scrape_all_urls(urls)` | Creates `AgentsClient`, iterates all banks, accumulates token usage across all runs, deletes the agent on completion, returns `{"results": [...], "token_usage": {...}}` |
+| `scrape_all_urls(urls)` | Creates `AgentsClient`, iterates all banks (or only the selected subset when called via `/api/scrape` body), accumulates token usage across all runs, deletes the agent on completion, returns `{"results": [...], "token_usage": {...}, "elapsed_seconds": float}` |
 
 **Tool call loop detail:**
 
@@ -172,6 +194,25 @@ runs.create()
 
 ---
 
+### `backend/agent/dynamic_fetch.py`
+
+Playwright-based fallback renderer. Launches a headless Chromium browser, navigates to the URL with `wait_until="networkidle"`, returns the rendered HTML / extracted text. Triggered by `fetch_webpage_handler` when a static fetch yields fewer than `MIN_PERCENT_SIGNS=20` `%` characters (a heuristic for rate tables).
+
+### `backend/agent/asset_extractors.py`
+
+Azure AI Document Intelligence wrapper. Uses the `prebuilt-layout` model to OCR PDFs and image-based rate cards. Endpoint configured via `DOC_INTELLIGENCE_ENDPOINT` env var; auth via `DefaultAzureCredential` (requires `Cognitive Services User` role on the DI resource).
+
+### `backend/agent/progress.py`
+
+Thread-safe live progress event buffer. Exposes:
+
+- `reset(total)` — clears buffer, assigns a fresh `run_id` (UUID), marks `running=True`.
+- `log(message)` — appends `{ts, message}` event.
+- `mark_done()` — sets `running=False`.
+- `snapshot(since=N)` — returns `{run_id, running, total, events[since:]}` for incremental polling.
+
+---
+
 ### `backend/dev_server.py`
 
 Flask application serving the REST API on port **7071**. Mirrors the Azure Functions API surface so the React frontend works identically in both local dev and production.
@@ -181,7 +222,9 @@ Key implementation details:
 - `CORS(app, origins=["http://localhost:3000"])` — allows cross-origin requests from the React dev server
 - `_get_blob_service_client()` — creates `BlobServiceClient` using account URL from `STORAGE_ACCOUNT_NAME` env var + `DefaultAzureCredential`
 - `_upload_to_blob(blob_name, data, content_type)` — uploads bytes to `BLOB_CONTAINER` with `overwrite=True`
-- `scrape_all()` — calls `scrape_all_urls(urls)`, unpacks `{"results": ..., "token_usage": ...}`, builds the full payload, uploads to blob as both timestamped and `latest.json`
+- `scrape_all()` — accepts optional `{"urls": [...]}` body for selective scraping, wraps `scrape_all_urls()` with a `time.monotonic()` timer, unpacks `{"results": ..., "token_usage": ...}`, adds `elapsed_seconds`, uploads to blob as both timestamped and `latest.json`
+- `scrape_progress()` — `GET /api/scrape/progress?since=N` returns `{run_id, running, total, events}` from the in-memory buffer
+- `delete_latest()` — `DELETE /api/results/latest` removes the local `latest.json` and the blob `latest.json`
 - `export_excel()` — generates `openpyxl` workbook with per-bank sheets, styled headers, alternating row colours, auto-filter; uploads as timestamped + `latest.xlsx`
 
 ---
@@ -237,6 +280,7 @@ Local environment variables for Azure Functions and the dev server. Set `IsEncry
 | `MODEL_DEPLOYMENT_NAME` | `gpt-4.1` |
 | `BLOB_CONTAINER_NAME` | `fd-rates` |
 | `STORAGE_ACCOUNT_NAME` | `fdratesstxf6etxfnua6lq` |
+| `DOC_INTELLIGENCE_ENDPOINT` | `https://fdrates-di-kvihlu.cognitiveservices.azure.com/` |
 
 ---
 
@@ -355,6 +399,8 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 pip install flask flask-cors requests beautifulsoup4
+# Install the headless Chromium used by the Playwright fallback
+python -m playwright install chromium
 ```
 
 ### 4. Frontend — Node dependencies
@@ -372,6 +418,8 @@ npm install
 
 ```powershell
 cd backend
+.\.venv\Scripts\Activate.ps1
+$env:DOC_INTELLIGENCE_ENDPOINT = "https://fdrates-di-kvihlu.cognitiveservices.azure.com/"
 python dev_server.py
 # API available at http://localhost:7071
 ```
@@ -426,26 +474,64 @@ Remove a bank URL by its UUID.
 
 ### `POST /api/scrape`
 
-Trigger a full agent scrape across all configured URLs. Response:
+Trigger a full agent scrape across all configured URLs, or pass a JSON body to scrape a subset:
+
+```json
+{ "urls": ["<url-id-1>", "<url-id-2>"] }
+```
+
+Response:
 
 ```json
 {
   "scraped_at": "2026-04-21T07:48:00+00:00",
-  "bank_count": 3,
+  "bank_count": 20,
+  "elapsed_seconds": 636.4,
   "token_usage": {
-    "prompt_tokens": 16531,
-    "completion_tokens": 8875,
-    "total_tokens": 25406
+    "prompt_tokens": 105563,
+    "completion_tokens": 35819,
+    "total_tokens": 141382
   },
+  "di_pages": 2,
   "results": [ ... ]
 }
 ```
 
 Also uploads `fd_rates_<timestamp>.json` and `latest.json` to blob storage.
 
+### `GET /api/scrape/progress?since=N`
+
+Returns the live progress buffer for the most recent (or in-flight) scrape:
+
+```json
+{
+  "run_id": "a1b2c3d4-...",
+  "running": true,
+  "total": 20,
+  "events": [
+    { "ts": "2026-04-25T19:42:01Z", "message": "[1/20] HDFC — fetching https://..." },
+    { "ts": "2026-04-25T19:42:08Z", "message": "[1/20] HDFC — Playwright fallback (signals=4)" }
+  ]
+}
+```
+
+Clients pass `since` (the index of the last event already received) for incremental polling. `run_id` changes on every new scrape; clients should clear local state when it does.
+
 ### `GET /api/results/latest`
 
-Returns the cached result from the most recent scrape (same shape as above).
+Returns the cached result from the most recent scrape (same shape as `/api/scrape`).
+
+### `DELETE /api/results/latest`
+
+Clears the cached result. Removes both the local `latest.json` and the blob `latest.json`. Used by the UI's Reset button so a page refresh does not repopulate the dashboard.
+
+```json
+{
+  "message": "Latest result cleared",
+  "removed_local": true,
+  "removed_blob": true
+}
+```
 
 ### `POST /api/export-excel`
 
@@ -532,11 +618,14 @@ On extraction failure:
 
 | Feature | Detail |
 |---|---|
-| Bank URL management | Sidebar form — add bank name + URL, delete individual entries; persisted to `backend/urls.json` |
-| Scrape All Banks | Calls `POST /api/scrape`; shows spinner and disables button during execution |
-| Results Dashboard | Per-bank collapsible sections with full rate tables (Tenor / Min Days / Max Days / Rate / Info) |
+| Bank URL management | Sidebar form — add bank name + URL, delete individual entries, **select** banks via checkbox; persisted to `backend/urls.json` |
+| Scrape All / Scrape Selected | Button label switches based on selection; calls `POST /api/scrape` (no body = all, body `{urls:[...]}` = selected). Shows spinner and disables button during execution. |
+| Live Activity Log | Polls `GET /api/scrape/progress?since=N` every 2s; shows per-URL fetch events, Playwright fallbacks, DI page extracts, retry attempts, completion. Locked to the current `run_id` so stale events from the prior run never bleed into the next. |
+| Results Dashboard | Per-bank collapsible sections with full rate tables (Tenor / Min Days / Max Days / Rate / Info); meta-info bar shows `Banks: N · Tokens: X · Time: Xm Ys`. |
 | Category filter chips | Auto-generated from scraped data; filter across all banks simultaneously |
 | Token usage bar | Maroon gradient banner: `total · prompt · completion` tokens from the last scrape |
+| Reset | Clears dashboard + activity log AND calls `DELETE /api/results/latest` so a refresh does not repopulate. |
+| Connection-drop recovery | If the long fetch to `/api/scrape` gets dropped by the dev proxy, the UI falls back to polling `/api/scrape/progress` until `running:false`, then loads `/api/results/latest`. |
 | Write Excel | Calls `POST /api/export-excel`; shows uploaded blob name in the status bar |
 | custom colour theme | Primary maroon `#97144D`, teal accent `#12877F`, blush background `#FDF5F8` |
 
@@ -589,10 +678,14 @@ The `backend/function_app.py` file implements the same API using **Azure Functio
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `AuthorizationFailure` on blob upload | Missing RBAC role or not logged in | `az login --use-device-code`; verify `Storage Blob Data Contributor` role is assigned |
+| `AuthorizationFailure` on blob upload | Missing RBAC role, not logged in, or storage `publicNetworkAccess: Disabled` | `az login --use-device-code`; verify `Storage Blob Data Contributor` role; ensure `publicNetworkAccess` is `Enabled` (`az storage account update -g rg-fd-rates -n fdratesstxf6etxfnua6lq --public-network-access Enabled`) |
 | `json.JSONDecodeError` from agent | Model returned markdown or conversational text | Handled automatically by `_parse_agent_response` — check logs for "retry" messages |
 | `requires_action` never resolves | Tool output not submitted correctly | Verify `tool_call.id` is passed correctly to `submit_tool_outputs` |
-| Empty results / `error` key in result | Bank website structure changed or JS-rendered | Inspect the fetched text via logging; consider adding the URL to a headless browser path |
+| Empty results / `error` key in result | Bank site is JS-rendered or PDF-based and fallback didn't trigger | Check the activity log for "Playwright fallback" / "DI extract" messages; lower `MIN_PERCENT_SIGNS` in `fd_rate_agent.py` if needed |
+| Playwright `Executable doesn't exist` | Browser binaries not installed | Run `python -m playwright install chromium` |
+| Document Intelligence 401/403 | Missing role on the DI resource | Assign `Cognitive Services User` to your identity on `fdrates-di-kvihlu` |
+| Scrape "failed" but backend still running | Dev proxy dropped the long fetch (~10 min for 20 URLs) | The UI now auto-recovers via `waitForBackendIdle()` — wait for it to load the result |
+| Activity log shows old events | Stale `run_id` from previous run | The poller now locks onto `run_id`; if you still see this, hard-refresh the page |
 | Port 7071 already in use | Previous Flask process still running | Kill with `Stop-Process` (see [Running Locally](#running-locally)) |
 | `NameError: ListSortOrder` | Old SDK import left in code | Remove the `order=ListSortOrder.DESCENDING` argument |
 | CORS error in browser | Flask CORS not configured | Ensure `CORS(app, origins=["http://localhost:3000"])` is present in `dev_server.py` |
