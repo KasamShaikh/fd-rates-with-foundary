@@ -78,15 +78,43 @@ IMPORTANT RULES:
 - Rate must be a number (e.g., 6.50 not "6.50%").
 - If multiple rate tables exist, include all of them under appropriate categories.
 - If you cannot access the page or find rates, return: {"error": "Could not extract rates", "bank_name": "<name>", "url": "<url>", "reason": "<why>"}
+
+DETERMINISM AND COMPLETENESS RULES (critical — read carefully):
+- Be EXHAUSTIVE and STABLE: every distinct labelled section, table, or special
+  scheme on the page MUST appear as its own entry in `categories`. Do NOT merge
+  a special scheme into "General Public" just because it shares a column header.
+- Treat any of the following as its OWN category entry (one per audience it
+  applies to), with `scheme_name` set to the exact scheme label as printed:
+    * Named special-tenor schemes (e.g., "SBI Amrit Vrishti", "Amrit Kalash",
+      "SBI Green Rupee Term Deposit", "WeCare", "Tax Saving Term Deposit",
+      "Utsav Deposit", "Shubh Aarambh", "Patrons", "Maha Yodha").
+    * Any row or table with its own heading/sub-heading distinct from the main
+      tenor table, even if it has only 1 rate.
+- For each such scheme, set `category_name` to the actual audience the row
+  applies to ("General Public", "Senior Citizen", "Super Senior Citizen", etc.)
+  — never leave it generic if the page specifies an audience. If the scheme
+  applies to multiple audiences, emit one category entry per audience.
+- Do NOT drop, summarise, or skip any rate row, even if it appears to duplicate
+  another row. Two runs of this prompt on the same page MUST produce the same
+  set of categories and the same number of rates.
+- Order `categories` deterministically: top-to-bottom in page order, and within
+  each section General Public before Senior Citizen before Super Senior.
 """
 
 
 def create_agent(agents_client: AgentsClient) -> object:
-    """Create a Foundry Agent with web + PDF + image extraction tools."""
+    """Create a Foundry Agent with web + PDF + image extraction tools.
+
+    Determinism: temperature and top_p are pinned to 0 so repeat runs against
+    the same page produce the same JSON (same categories, same rate count).
+    Without this, gpt-4.1 sometimes drops or relabels special-scheme rows.
+    """
     agent = agents_client.create_agent(
         model=os.environ.get("MODEL_DEPLOYMENT_NAME", "gpt-4.1"),
         name="fd-rate-scraper",
         instructions=SYSTEM_INSTRUCTIONS,
+        temperature=0.0,
+        top_p=1.0,
         tools=[
             {
                 "type": "function",
@@ -368,10 +396,14 @@ def scrape_bank_url(
         content=user_message,
     )
 
-    # Create run (don't use create_and_process - manually handle tool calls)
+    # Create run (don't use create_and_process - manually handle tool calls).
+    # Pin temperature/top_p at the run level too — even when the agent has
+    # them set, the run-level values win, so we pass them explicitly.
     run = agents_client.runs.create(
         thread_id=thread.id,
         agent_id=agent_id,
+        temperature=0.0,
+        top_p=1.0,
     )
 
     # Poll run status and handle tool calls manually
