@@ -6,5 +6,9 @@ azure-ai-agents
 azure-ai-documentintelligence
 openpyxl
 python-dotenv
-playwright
+playwright==1.47.0
 requests
+beautifulsoup4
+flask
+flask-cors
+gunicorn

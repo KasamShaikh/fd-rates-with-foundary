@@ -18,6 +18,7 @@ import ScrapeButton from './components/ScrapeButton';
 import ExportButton from './components/ExportButton';
 import ResultsDashboard from './components/ResultsDashboard';
 import ProgressLog from './components/ProgressLog';
+import ScrapingLoader from './components/ScrapingLoader';
 import './App.css';
 
 // Empty default => same-origin requests (works when frontend is served by the
@@ -67,6 +68,16 @@ function App() {
   const deleteUrl = async (id) => {
     await fetch(`${API}/api/urls/${id}`, { method: 'DELETE' });
     fetchUrls();
+  };
+
+  const updateUrl = async (id, { url, bankName }) => {
+    const res = await fetch(`${API}/api/urls/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, bank_name: bankName }),
+    });
+    if (res.ok) { setMessage('URL updated'); fetchUrls(); }
+    else setMessage('Failed to update URL');
   };
 
   // Poll /api/scrape/progress until the backend reports running:false.
@@ -145,23 +156,14 @@ function App() {
           ...(forceRefresh ? { force: true } : {}),
         }),
       });
-      const data = await res.json();
-      if (res.ok) {
-        setResults(data);
-        if (data.cancelled) {
-          const done = (data.bank_count || 0) - (data.cancelled_count || 0);
-          setMessage(`⏹️ Fetch cancelled. ${done} of ${data.bank_count} banks completed before stop.`);
-        } else {
-          setMessage(`Fetch complete! ${data.bank_count} banks processed.`);
-        }
-      } else {
-        setMessage(data.error || 'Fetch failed');
+      // 202 = accepted (fire-and-forget). 409 = already running. We treat both
+      // as "wait for the backend to finish, then load results".
+      if (!res.ok && res.status !== 202 && res.status !== 409) {
+        const data = await res.json().catch(() => ({}));
+        setMessage(data.error || `Fetch failed (HTTP ${res.status})`);
+        return;
       }
-    } catch {
-      // The HTTP request was dropped (e.g., dev proxy disconnect on long
-      // scrapes), but the backend is likely still running. Wait for the
-      // server to mark the run as done, then fetch the saved latest result.
-      setMessage('Connection dropped during fetch. Waiting for backend to finish...');
+      // Wait for the background run to finish, then load the saved result.
       const completed = await waitForBackendIdle();
       if (completed) {
         try {
@@ -169,7 +171,12 @@ function App() {
           if (r2.ok) {
             const data2 = await r2.json();
             setResults(data2);
-            setMessage(`Fetch complete! ${data2.bank_count} banks processed.`);
+            if (data2.cancelled) {
+              const done = (data2.bank_count || 0) - (data2.cancelled_count || 0);
+              setMessage(`⏹️ Fetch cancelled. ${done} of ${data2.bank_count} banks completed before stop.`);
+            } else {
+              setMessage(`Fetch complete! ${data2.bank_count} banks processed.`);
+            }
           } else {
             setMessage('Fetch finished but no results were saved.');
           }
@@ -179,6 +186,8 @@ function App() {
       } else {
         setMessage('Fetch did not finish within the wait window. Check the activity log.');
       }
+    } catch {
+      setMessage('Could not reach the backend to start the fetch.');
     }
     finally {
       // Final drain of events
@@ -242,6 +251,7 @@ function App() {
             urls={urls}
             onAdd={addUrl}
             onDelete={deleteUrl}
+            onUpdate={updateUrl}
             selectedIds={selectedIds}
             onToggle={(id) =>
               setSelectedIds((prev) =>
@@ -311,7 +321,14 @@ function App() {
             active={scraping}
             onDone={() => setProgressEvents([])}
           />
-          <ResultsDashboard results={results} />
+          {scraping && !results ? (
+            <ScrapingLoader
+              targetCount={selectedIds.length === 0 ? urls.length : selectedIds.length}
+              eventCount={progressEvents.length}
+            />
+          ) : (
+            <ResultsDashboard results={results} />
+          )}
         </main>
       </div>
     </div>

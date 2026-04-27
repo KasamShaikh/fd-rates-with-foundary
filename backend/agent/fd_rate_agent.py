@@ -195,27 +195,96 @@ def _discover_assets(soup: BeautifulSoup, base_url: str) -> dict:
     """Scan parsed HTML for linked PDFs, embedded images, and iframe/embed PDFs.
 
     Returns a dict with three lists of `(url, label)` tuples. URLs are resolved
-    to absolute form using `base_url` as the reference.
+    to absolute form using `base_url` as the reference. PDFs are sorted by
+    relevance: any PDF embedded as the page's main document (`<object>`,
+    `<embed>`, `<iframe>`) ranks first, followed by PDFs whose URL or anchor
+    label mentions FD-rate keywords (rate / deposit / interest / fd / bulk /
+    term / fcnr / nre / nro). Pages like Punjab & Sind Bank link to 100+
+    unrelated PDFs (account-opening forms, brochures, posters) so without this
+    ranking the actual rate PDF was getting truncated out of the top-20 cap
+    that we send to the agent.
     """
-    pdfs: list[tuple[str, str]] = []
+    pdfs: list[tuple[str, str, int]] = []  # (url, label, score) — temp
     images: list[tuple[str, str]] = []
     iframes: list[tuple[str, str]] = []
 
     seen: set[str] = set()
 
-    def _add(bucket: list, href: str, label: str) -> None:
+    _RATE_KEYWORDS = (
+        "rate",
+        "deposit",
+        "interest",
+        " fd ",
+        "/fd",
+        "fixed",
+        "bulk",
+        "term",
+        "fcnr",
+        "nre",
+        "nro",
+        "rfc",
+        "savings",
+    )
+
+    def _is_pdf_url(href: str) -> bool:
+        path = href.lower().split("?", 1)[0].split("#", 1)[0]
+        return path.endswith(".pdf")
+
+    def _score_pdf(url: str, label: str) -> int:
+        hay = f"{url} {label}".lower()
+        score = 0
+        for kw in _RATE_KEYWORDS:
+            if kw.strip() and kw.strip() in hay:
+                score += 10
+        # Boost recent-looking filenames (banks tag PDFs with year/date).
+        if any(y in hay for y in ("2026", "2025", "2024")):
+            score += 1
+        return score
+
+    def _add_pdf(href: str, label: str, base_score: int = 0) -> None:
         absolute = urljoin(base_url, href.strip())
         if not absolute or absolute in seen:
             return
         seen.add(absolute)
-        bucket.append((absolute, (label or "").strip()[:120]))
+        score = base_score + _score_pdf(absolute, label or "")
+        pdfs.append((absolute, (label or "").strip()[:120], score))
 
-    # <a href="*.pdf"> or href containing 'pdf' keyword
+    def _add_image(href: str, label: str) -> None:
+        absolute = urljoin(base_url, href.strip())
+        if not absolute or absolute in seen:
+            return
+        seen.add(absolute)
+        images.append((absolute, (label or "").strip()[:120]))
+
+    def _add_iframe(href: str, label: str) -> None:
+        absolute = urljoin(base_url, href.strip())
+        if not absolute or absolute in seen:
+            return
+        seen.add(absolute)
+        iframes.append((absolute, (label or "").strip()[:120]))
+
+    # <object>/<embed>/<iframe> — these are the page's MAIN document. Add
+    # both to the iframes bucket (preserves backward compat) AND to the pdfs
+    # bucket with a huge score boost so they sort to the top.
+    for tag in soup.find_all(["iframe", "embed", "object"]):
+        src = tag.get("src") or tag.get("data") or ""
+        if not src:
+            continue
+        type_attr = (tag.get("type") or "").lower()
+        is_pdf = _is_pdf_url(src) or "pdf" in type_attr
+        if is_pdf:
+            label = tag.name
+            _add_iframe(src, label)
+            # Re-add into pdfs with a 1000-point boost so it ranks #1.
+            absolute = urljoin(base_url, src.strip())
+            if absolute not in {p[0] for p in pdfs}:
+                pdfs.append((absolute, label, 1000 + _score_pdf(absolute, label)))
+
+    # <a href="*.pdf">
     for a in soup.find_all("a", href=True):
         href = a["href"]
-        lower = href.lower().split("?")[0]
-        if lower.endswith(".pdf") or "pdf" in lower:
-            _add(pdfs, href, a.get_text(strip=True))
+        if _is_pdf_url(href):
+            _add_pdf(href, a.get_text(strip=True))
 
     # <img src="..."> (cap to 15 to keep prompt lean)
     for img in soup.find_all("img", src=True)[:15]:
@@ -225,15 +294,13 @@ def _discover_assets(soup: BeautifulSoup, base_url: str) -> dict:
             lower.endswith(ext)
             for ext in (".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif", ".webp")
         ):
-            _add(images, src, img.get("alt", ""))
+            _add_image(src, img.get("alt", ""))
 
-    # <iframe src="*.pdf"> / <embed src="*.pdf">
-    for tag in soup.find_all(["iframe", "embed", "object"]):
-        src = tag.get("src") or tag.get("data") or ""
-        if src and ".pdf" in src.lower():
-            _add(iframes, src, tag.name)
+    # Sort PDFs by score desc, then by source order (stable sort).
+    pdfs.sort(key=lambda t: -t[2])
+    pdfs_out = [(u, lbl) for (u, lbl, _s) in pdfs]
 
-    return {"pdfs": pdfs, "images": images, "iframes": iframes}
+    return {"pdfs": pdfs_out, "images": images, "iframes": iframes}
 
 
 def _format_asset_inventory(assets: dict) -> str:
@@ -324,8 +391,14 @@ def fetch_webpage_handler(url: str) -> str:
             rendered = render_page_html(url)
             if rendered:
                 d_text, d_assets, d_pct = _parse_html_for_rates(rendered, response.url)
-                # Only adopt the dynamic result if it's actually richer
-                if d_pct > pct_count or len(d_text) > len(text) * 1.5:
+                # Adopt the dynamic result whenever it has more rate signals OR
+                # more visible text. Tab-expanded pages add text incrementally
+                # (clicking each slab tab adds one row block at a time) and
+                # may not cross the old 1.5x bar even when they're strictly
+                # better than the static page.
+                if d_pct >= pct_count and (
+                    d_pct > pct_count or len(d_text) > len(text)
+                ):
                     text, assets, pct_count = d_text, d_assets, d_pct
                     used_dynamic = True
 
@@ -821,6 +894,21 @@ def scrape_all_urls(urls: list[dict]) -> list[dict]:
                 except Exception as e:
                     logger.exception("Worker failed: %s", e)
                     progress_log(f"Worker failed: {e}", level="warn")
+            # Close per-thread Playwright browsers from inside each worker
+            # thread before the executor shuts down.
+            try:
+                from .dynamic_fetch import close_thread_browser
+
+                close_futures = [
+                    ex.submit(close_thread_browser) for _ in range(max_workers)
+                ]
+                for cf in close_futures:
+                    try:
+                        cf.result(timeout=10)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
     finally:
         # Clean up agent
         try:

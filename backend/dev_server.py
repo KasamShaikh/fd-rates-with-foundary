@@ -8,6 +8,7 @@ Usage: python dev_server.py
 import json
 import logging
 import os
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,14 +28,26 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:3000"])
+
+# Allowed CORS origins. Defaults to the local dev server. In cloud, set
+# ALLOWED_ORIGINS to a comma-separated list e.g.
+#   ALLOWED_ORIGINS=https://my-swa.azurestaticapps.net
+_default_origins = "http://localhost:3000"
+_origins_csv = os.environ.get("ALLOWED_ORIGINS", _default_origins)
+_origins = [o.strip() for o in _origins_csv.split(",") if o.strip()]
+CORS(app, origins=_origins)
 
 URLS_FILE = os.path.join(os.path.dirname(__file__), "urls.json")
 BLOB_CONTAINER = os.environ.get("BLOB_CONTAINER_NAME", "fd-rates")
 
-# Local file-based storage for dev (instead of Blob Storage)
+# Local file-based storage for dev. Disable in cloud by setting
+# LOCAL_RESULTS_ENABLED=false so the container only writes to Blob Storage.
+LOCAL_RESULTS_ENABLED = (
+    os.environ.get("LOCAL_RESULTS_ENABLED", "true").lower() != "false"
+)
 LOCAL_RESULTS_DIR = os.path.join(os.path.dirname(__file__), "_local_results")
-os.makedirs(LOCAL_RESULTS_DIR, exist_ok=True)
+if LOCAL_RESULTS_ENABLED:
+    os.makedirs(LOCAL_RESULTS_DIR, exist_ok=True)
 
 
 def _get_blob_service_client():
@@ -71,19 +84,60 @@ def _upload_to_blob(
         return False
 
 
+URLS_BLOB_NAME = "urls.json"
+
+
+def _download_urls_from_blob():
+    """Return parsed urls list from blob, or None if not found / unavailable."""
+    try:
+        client = _get_blob_service_client()
+        if client is None:
+            return None
+        blob_client = client.get_blob_client(BLOB_CONTAINER, URLS_BLOB_NAME)
+        if not blob_client.exists():
+            return None
+        data = blob_client.download_blob().readall()
+        return json.loads(data.decode("utf-8"))
+    except Exception as e:
+        logger.warning("Failed to download urls.json from blob: %s", e)
+        return None
+
+
+def _upload_urls_to_blob(urls) -> bool:
+    payload = json.dumps(urls, indent=2, ensure_ascii=False).encode("utf-8")
+    return _upload_to_blob(URLS_BLOB_NAME, payload, content_type="application/json")
+
+
 def _load_urls():
-    if not os.path.exists(URLS_FILE):
-        return []
-    with open(URLS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    """Load URL list. Blob is authoritative; falls back to bundled file on first run."""
+    blob_urls = _download_urls_from_blob()
+    if blob_urls is not None:
+        return blob_urls
+    # First-run seed: read the bundled urls.json and push it to blob so it
+    # becomes the source of truth from this point on.
+    if os.path.exists(URLS_FILE):
+        with open(URLS_FILE, "r", encoding="utf-8") as f:
+            seed = json.load(f)
+        _upload_urls_to_blob(seed)
+        return seed
+    return []
 
 
 def _save_urls(urls):
-    with open(URLS_FILE, "w", encoding="utf-8") as f:
-        json.dump(urls, f, indent=2, ensure_ascii=False)
+    # Authoritative copy goes to blob storage.
+    _upload_urls_to_blob(urls)
+    # Best-effort local mirror (useful for dev; ephemeral in cloud).
+    try:
+        with open(URLS_FILE, "w", encoding="utf-8") as f:
+            json.dump(urls, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.warning("Failed to write local urls.json mirror: %s", e)
 
 
 def _save_local_result(filename, data):
+    """Persist a result file to the local cache. No-op when LOCAL_RESULTS_ENABLED=false (cloud)."""
+    if not LOCAL_RESULTS_ENABLED:
+        return
     path = os.path.join(LOCAL_RESULTS_DIR, filename)
     if isinstance(data, (dict, list)):
         with open(path, "w", encoding="utf-8") as f:
@@ -94,11 +148,24 @@ def _save_local_result(filename, data):
 
 
 def _load_local_result(filename):
-    path = os.path.join(LOCAL_RESULTS_DIR, filename)
-    if not os.path.exists(path):
+    """Return a saved result. Reads local cache first; falls back to Blob Storage when disabled or missing."""
+    if LOCAL_RESULTS_ENABLED:
+        path = os.path.join(LOCAL_RESULTS_DIR, filename)
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+    # Cloud / missing-local fallback: pull from blob
+    try:
+        client = _get_blob_service_client()
+        if client is None:
+            return None
+        blob = client.get_container_client(BLOB_CONTAINER).get_blob_client(filename)
+        if not blob.exists():
+            return None
+        return json.loads(blob.download_blob().readall().decode("utf-8"))
+    except Exception as e:
+        logger.info("Blob load fallback for %s failed: %s", filename, e)
         return None
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
 
 
 # -------------------------------------------------------
@@ -148,11 +215,120 @@ def delete_url(url_id):
 
 
 # -------------------------------------------------------
-# POST /api/scrape
+# PUT /api/urls/<id>  — edit bank_name and/or url
 # -------------------------------------------------------
+@app.route("/api/urls/<url_id>", methods=["PUT"])
+def update_url(url_id):
+    body = request.get_json(silent=True) or {}
+    new_url = (body.get("url") or "").strip()
+    new_name = (body.get("bank_name") or "").strip()
+    if not new_url and not new_name:
+        return jsonify({"error": "Provide 'url' and/or 'bank_name'"}), 400
+    urls = _load_urls()
+    found = None
+    for u in urls:
+        if u["id"] == url_id:
+            if new_url:
+                u["url"] = new_url
+            if new_name:
+                u["bank_name"] = new_name
+            u["updated_at"] = datetime.now(timezone.utc).isoformat()
+            found = u
+            break
+    if found is None:
+        return jsonify({"error": "URL not found"}), 404
+    _save_urls(urls)
+    return jsonify(found)
+
+
+# -------------------------------------------------------
+# POST /api/scrape  (fire-and-forget)
+# -------------------------------------------------------
+# Tracks the most recent background run so duplicate POSTs don't double-start.
+_scrape_thread_lock = threading.Lock()
+_scrape_thread: "threading.Thread | None" = None
+
+
+def _run_scrape_job(urls, force_refresh: bool) -> None:
+    """Background worker: runs the scrape, persists results, never raises."""
+    from agent.fd_rate_agent import scrape_all_urls
+    from agent import progress as _progress
+    import time as _time
+
+    if force_refresh:
+        os.environ["FORCE_REFRESH"] = "true"
+
+    _t0 = _time.monotonic()
+    elapsed_seconds = 0.0
+    scrape_output = None
+    try:
+        scrape_output = scrape_all_urls(urls)
+    except Exception as e:
+        logger.exception("Fetch failed")
+        _progress.log(f"Fetch failed: {e}", level="error")
+        return
+    finally:
+        elapsed_seconds = round(_time.monotonic() - _t0, 1)
+        mins, secs = divmod(int(elapsed_seconds), 60)
+        _progress.log(
+            f"Total time taken: {mins}m {secs}s ({elapsed_seconds:.1f} seconds).",
+            level="success",
+        )
+        if force_refresh:
+            os.environ.pop("FORCE_REFRESH", None)
+
+    try:
+        results = (
+            scrape_output.get("results", scrape_output)
+            if isinstance(scrape_output, dict)
+            else scrape_output
+        )
+        token_usage = (
+            scrape_output.get("token_usage", {})
+            if isinstance(scrape_output, dict)
+            else {}
+        )
+        di_pages = (
+            scrape_output.get("di_pages", 0) if isinstance(scrape_output, dict) else 0
+        )
+        unchanged_count = (
+            scrape_output.get("unchanged_count", 0)
+            if isinstance(scrape_output, dict)
+            else 0
+        )
+
+        timestamp = datetime.now(timezone.utc)
+        payload = {
+            "scraped_at": timestamp.isoformat(),
+            "bank_count": len(results) if results is not None else 0,
+            "token_usage": token_usage,
+            "di_pages": di_pages,
+            "unchanged_count": unchanged_count,
+            "elapsed_seconds": elapsed_seconds,
+            "results": results or [],
+        }
+
+        ts_str = timestamp.strftime("%Y%m%d_%H%M%S")
+        _save_local_result(f"fd_rates_{ts_str}.json", payload)
+        _save_local_result("latest.json", payload)
+
+        payload_bytes = json.dumps(payload, ensure_ascii=False, default=str).encode(
+            "utf-8"
+        )
+        _upload_to_blob(f"fd_rates_{ts_str}.json", payload_bytes, "application/json")
+        _upload_to_blob("latest.json", payload_bytes, "application/json")
+
+        logger.info("Fetch complete.")
+    except Exception:
+        logger.exception("Failed to persist scrape results")
+        _progress.log("Failed to persist results", level="error")
+    finally:
+        _progress.mark_done()
+
+
 @app.route("/api/scrape", methods=["POST"])
 def scrape_all():
-    from agent.fd_rate_agent import scrape_all_urls
+    global _scrape_thread
 
     urls = _load_urls()
     if not urls:
@@ -169,12 +345,7 @@ def scrape_all():
                 {"error": "None of the selected URL ids match configured URLs."}
             ), 400
 
-    # Optional: `force=true` bypasses the L1 HTTP cache and forces a full
-    # scrape for every URL this run. Surfaced via FORCE_REFRESH env var which
-    # the http_cache module reads. Cleared in finally{} below.
     force_refresh = bool(body.get("force"))
-    if force_refresh:
-        os.environ["FORCE_REFRESH"] = "true"
 
     # Validate that Foundry is configured
     if not os.environ.get("PROJECT_ENDPOINT") or "<your-resource>" in os.environ.get(
@@ -187,72 +358,38 @@ def scrape_all():
             }
         ), 503
 
-    logger.info("Starting fetch for %d URLs", len(urls))
     from agent import progress as _progress
 
-    _progress.reset()
-    import time as _time
+    with _scrape_thread_lock:
+        if _scrape_thread is not None and _scrape_thread.is_alive():
+            snap = _progress.snapshot(since=0)
+            return jsonify(
+                {
+                    "started": False,
+                    "already_running": True,
+                    "run_id": snap.get("run_id"),
+                    "bank_count": len(urls),
+                }
+            ), 409
 
-    _t0 = _time.monotonic()
-    elapsed_seconds = 0.0
-    try:
-        scrape_output = scrape_all_urls(urls)
-    except Exception as e:
-        logger.exception("Fetch failed")
-        _progress.log(f"Fetch failed: {e}", level="error")
-        _progress.mark_done()
-        return jsonify({"error": f"Fetch failed: {e}"}), 500
-    finally:
-        elapsed_seconds = round(_time.monotonic() - _t0, 1)
-        mins, secs = divmod(int(elapsed_seconds), 60)
-        _progress.log(
-            f"Total time taken: {mins}m {secs}s ({elapsed_seconds:.1f} seconds).",
-            level="success",
+        run_id = _progress.reset()
+        logger.info("Starting fetch for %d URLs (run_id=%s)", len(urls), run_id)
+        t = threading.Thread(
+            target=_run_scrape_job,
+            args=(urls, force_refresh),
+            name=f"scrape-run-{run_id}",
+            daemon=True,
         )
-        _progress.mark_done()
-        # Always clear FORCE_REFRESH so subsequent runs return to the cached path.
-        if force_refresh:
-            os.environ.pop("FORCE_REFRESH", None)
+        _scrape_thread = t
+        t.start()
 
-    results = (
-        scrape_output.get("results", scrape_output)
-        if isinstance(scrape_output, dict)
-        else scrape_output
-    )
-    token_usage = (
-        scrape_output.get("token_usage", {}) if isinstance(scrape_output, dict) else {}
-    )
-    di_pages = (
-        scrape_output.get("di_pages", 0) if isinstance(scrape_output, dict) else 0
-    )
-    unchanged_count = (
-        scrape_output.get("unchanged_count", 0)
-        if isinstance(scrape_output, dict)
-        else 0
-    )
-
-    timestamp = datetime.now(timezone.utc)
-    payload = {
-        "scraped_at": timestamp.isoformat(),
-        "bank_count": len(results),
-        "token_usage": token_usage,
-        "di_pages": di_pages,
-        "unchanged_count": unchanged_count,
-        "elapsed_seconds": elapsed_seconds,
-        "results": results,
-    }
-
-    ts_str = timestamp.strftime("%Y%m%d_%H%M%S")
-    _save_local_result(f"fd_rates_{ts_str}.json", payload)
-    _save_local_result("latest.json", payload)
-
-    # Upload to Azure Blob Storage
-    payload_bytes = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
-    _upload_to_blob(f"fd_rates_{ts_str}.json", payload_bytes, "application/json")
-    _upload_to_blob("latest.json", payload_bytes, "application/json")
-
-    logger.info("Fetch complete.")
-    return jsonify(payload)
+    return jsonify(
+        {
+            "started": True,
+            "run_id": run_id,
+            "bank_count": len(urls),
+        }
+    ), 202
 
 
 # -------------------------------------------------------
@@ -312,14 +449,15 @@ def get_latest_results():
 # -------------------------------------------------------
 @app.route("/api/results/latest", methods=["DELETE"])
 def delete_latest_results():
-    path = os.path.join(LOCAL_RESULTS_DIR, "latest.json")
     removed_local = False
-    if os.path.exists(path):
-        try:
-            os.remove(path)
-            removed_local = True
-        except OSError as e:
-            logger.warning("Could not delete %s: %s", path, e)
+    if LOCAL_RESULTS_ENABLED:
+        path = os.path.join(LOCAL_RESULTS_DIR, "latest.json")
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+                removed_local = True
+            except OSError as e:
+                logger.warning("Could not delete %s: %s", path, e)
 
     removed_blob = False
     try:

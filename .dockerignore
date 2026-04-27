@@ -1,0 +1,27 @@
+# Build context lives at the repo root so the Dockerfile can `COPY backend/`.
+# These paths are relative to the repo root.
+
+# Local-only artifacts and secrets
+.env
+.env.template
+.git
+.gitignore
+.github
+.vscode
+
+# Frontend / infra not needed in backend image
+frontend/
+infra/
+
+# Backend local caches and dev outputs
+backend/_local_results/
+backend/local.settings.json
+backend/__pycache__/
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/.pytest_cache/
+
+# Docs & scripts not needed at runtime
+README.md
+setup.ps1
+*.md

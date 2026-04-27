@@ -9,9 +9,12 @@
 // parent <App /> via the API.
 import React, { useState, useMemo } from 'react';
 
-function UrlManager({ urls, onAdd, onDelete, selectedIds, onToggle, onSelectAll, onSelectNone }) {
+function UrlManager({ urls, onAdd, onDelete, onUpdate, selectedIds, onToggle, onSelectAll, onSelectNone }) {
   const [url, setUrl] = useState('');
   const [bankName, setBankName] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [editUrl, setEditUrl] = useState('');
+  const [editName, setEditName] = useState('');
 
   // Validate then forward the new entry to the parent; clear inputs on success.
   const handleSubmit = (e) => {
@@ -83,6 +86,7 @@ function UrlManager({ urls, onAdd, onDelete, selectedIds, onToggle, onSelectAll,
           <ul className="url-list">
             {urls.map((item) => {
               const checked = selectedSet.has(String(item.id));
+              const isEditing = editingId === item.id;
               return (
                 <li
                   key={item.id}
@@ -93,15 +97,68 @@ function UrlManager({ urls, onAdd, onDelete, selectedIds, onToggle, onSelectAll,
                       type="checkbox"
                       checked={checked}
                       onChange={() => onToggle && onToggle(item.id)}
+                      disabled={isEditing}
                     />
                   </label>
-                  <div className="url-text">
-                    <div className="bank-name">{item.bank_name}</div>
-                    <div className="bank-url">{item.url}</div>
-                  </div>
-                  <button className="btn btn-danger" onClick={() => onDelete(item.id)}>
-                    Delete
-                  </button>
+                  {isEditing ? (
+                    <div className="url-text url-edit">
+                      <input
+                        type="text"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        placeholder="Bank name"
+                      />
+                      <input
+                        type="url"
+                        value={editUrl}
+                        onChange={(e) => setEditUrl(e.target.value)}
+                        placeholder="FD rate page URL"
+                      />
+                    </div>
+                  ) : (
+                    <div className="url-text">
+                      <div className="bank-name">{item.bank_name}</div>
+                      <div className="bank-url">{item.url}</div>
+                    </div>
+                  )}
+                  {isEditing ? (
+                    <div className="url-edit-actions">
+                      <button
+                        className="btn btn-primary btn-sm"
+                        onClick={() => {
+                          if (onUpdate && editUrl.trim() && editName.trim()) {
+                            onUpdate(item.id, { url: editUrl.trim(), bankName: editName.trim() });
+                          }
+                          setEditingId(null);
+                        }}
+                      >
+                        Save
+                      </button>
+                      <button
+                        className="btn btn-reset btn-sm"
+                        onClick={() => setEditingId(null)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="url-edit-actions">
+                      <button
+                        className="btn btn-reset btn-sm"
+                        onClick={() => {
+                          setEditingId(item.id);
+                          setEditUrl(item.url);
+                          setEditName(item.bank_name);
+                        }}
+                        title="Edit this URL"
+                      >
+                        Edit
+                      </button>
+                      <button className="btn btn-danger btn-sm" onClick={() => onDelete(item.id)}>
+                        Delete
+                      </button>
+                    </div>
+                  )}
                 </li>
               );
             })}

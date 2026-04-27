@@ -2,10 +2,25 @@
 
 An AI-powered Fixed Deposit rate aggregator for Indian banks. Uses **Azure AI Foundry** (`gpt-4.1`) as an intelligent agent with a custom `fetch_webpage` tool to scrape, parse, and structure FD rate data from bank websites. JS-rendered pages fall back to a **Playwright** headless browser, and PDFs/images are extracted with **Azure AI Document Intelligence** (`prebuilt-layout`). Results are stored in **Azure Blob Storage** and exposed through a **Flask REST API** consumed by a **React** browser UI with a live progress feed.
 
+## Deploy to Azure
+
+Click the button below to provision the full stack into your own Azure subscription. The template provisions storage, AI Foundry + `gpt-4.1`, Document Intelligence, Bing Grounding, App Insights, an Azure Container Registry, an App Service Plan + Linux Web App for Containers (B1), an ACA Environment + Container App, and a Static Web App. After the ARM template completes, run `pwsh ./deploy.ps1 -ResourceGroup <rg> -Location <loc>` to build the backend image and push the React build (or follow the manual steps in [Production Deployment](#production-deployment)).
+
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FKasamShaikh%2Ffd-rates-with-foundary%2Fmaster%2Finfra%2Fmain.json)
+[![Visualize](https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/1-CONTRIBUTION-GUIDE/images/visualizebutton.svg?sanitize=true)](https://armviz.io/#/?load=https%3A%2F%2Fraw.githubusercontent.com%2FKasamShaikh%2Ffd-rates-with-foundary%2Fmaster%2Finfra%2Fmain.json)
+
+> **Prerequisites for the button:** an Azure subscription with quota for `gpt-4.1` (Sweden Central by default — change `aiLocation` if your quota is elsewhere), `Owner` or `User Access Administrator` rights on the target resource group (RBAC role assignments are part of the template), and the `Microsoft.App`, `Microsoft.CognitiveServices`, `Microsoft.Web`, `Microsoft.ContainerRegistry`, and `Microsoft.Bing` providers registered. The template defaults to `B1` App Service for production-style hosting; toggle `deployAppService=false` to skip it and use only Container Apps.
+
 ## What's New
 
-- **robots.txt compliance** — every outbound HTML/PDF/image fetch now consults the origin's `/robots.txt` via `urllib.robotparser` (cached per host) and skips disallowed URLs with a warning. Toggle via `ROBOTS_RESPECT=false`; user-agent matched against rules is `ROBOTS_USER_AGENT` (default `FDRateAggregator`). Default-allow on network/parse errors per RFC 9309.
-- **Parallel fetching (~2.6× faster)** — bank URLs are now processed concurrently with a `ThreadPoolExecutor` (default 4 workers, override via `SCRAPE_MAX_WORKERS`). A single shared Foundry agent is reused across workers, and per-run token usage is aggregated under a `threading.Lock`. End-to-end run for 20 banks dropped from ~527 s to ~201 s in our benchmark.
+- **Production hosting on Azure App Service (Linux Web App for Containers, B1)** — the live demo now runs on App Service alongside ACA, with the Foundry/agent stack identical. App Service was added because the demo subscription has no ACA quota in this region; the Bicep template now provisions both and you can deploy to either.
+- **Dynamic tab/accordion expansion in the Playwright fallback** — for rate pages where amount slabs (e.g. ICICI's *"Less than ₹3 Cr."*, *"5 - < 5.10 Cr."*, *"More than 500 Cr."*) live behind unlabelled React `<button>` toggles, the renderer now finds rate-keyword buttons via JS, real-clicks each one with `force=true`, and concatenates the captured snapshots into an injected `<div id="__expanded_tabs__">`. Lifted ICICI extraction from 0 categories / 5,359 chars to 30 rates / 156 KB.
+- **PDF asset discovery hardened** — `<object data="…pdf">`, `<embed src="…pdf">`, and `<iframe type="application/pdf">` are now promoted to the top of the asset list (score `+1000`). Fixed Punjab & Sind Bank where the bulk-deposit rate card is exposed only as a `<object>` element.
+- **Playwright pinned to base-image version** — `playwright==1.47.0` is now pinned in `requirements.txt` to match `mcr.microsoft.com/playwright/python:v1.47.0-jammy`. Without this pin, pip resolves the latest Playwright while the Docker image only ships the older Chromium, and `BrowserType.launch` silently fails with *"Executable doesn't exist"*. (See troubleshooting table below.)
+- **Stop-fetch button** — cancel an in-flight scrape mid-run; the agent loop checks the cancellation flag before each tool call and emits a *"Cancelled by user — partial result"* summary.
+- **L1 HTTP cache** — conditional `GET` with `If-None-Match` / `If-Modified-Since` short-circuits the agent when bank pages are unchanged (`304 Not Modified` or sha256 match → reuse cached result, **0 tokens**, **0 DI pages**).
+- **robots.txt compliance** — every outbound HTML/PDF/image fetch consults the origin's `/robots.txt` via `urllib.robotparser` (cached per host) and skips disallowed URLs with a warning. Toggle via `ROBOTS_RESPECT=false`; user-agent matched against rules is `ROBOTS_USER_AGENT` (default `FDRateAggregator`). Default-allow on network/parse errors per RFC 9309.
+- **Parallel fetching (~2.6× faster)** — bank URLs are processed concurrently with a `ThreadPoolExecutor` (default 4 workers, override via `SCRAPE_MAX_WORKERS`). A single shared Foundry agent is reused across workers, and per-run token usage is aggregated under a `threading.Lock`. End-to-end run for 20 banks dropped from ~527 s to ~201 s in our benchmark.
 - **Playwright fallback** — when a static fetch returns too few rate-like signals (e.g. JS-rendered pages), the agent re-fetches via headless Chromium.
 - **Document Intelligence integration** — PDF circulars and image-based rate cards are processed with Azure DI `prebuilt-layout`; extracted text is returned to the agent.
 - **Live progress log** — every scrape emits real-time events (per-URL start, tool calls, retries, completion). The UI polls `/api/scrape/progress` and shows them in an Activity panel.
@@ -20,23 +35,24 @@ An AI-powered Fixed Deposit rate aggregator for Indian banks. Uses **Azure AI Fo
 
 ## Table of Contents
 
-1. [Architecture](#architecture)
-2. [Azure Resources](#azure-resources)
-3. [Project Structure](#project-structure)
-4. [File Reference](#file-reference)
-5. [Prerequisites](#prerequisites)
-6. [Environment Setup](#environment-setup)
-7. [Running Locally](#running-locally)
-8. [API Reference](#api-reference)
-9. [How the Agent Works](#how-the-agent-works)
-10. [Data Schema](#data-schema)
-11. [UI Features](#ui-features)
-12. [Blob Storage Contents](#blob-storage-contents)
-13. [Production Deployment](#production-deployment)
-14. [Responsible Fetching (robots.txt)](#responsible-fetching-robotstxt)
-15. [Change Detection (HTTP cache)](#change-detection-http-cache)
-16. [Code Commenting Convention](#code-commenting-convention)
-17. [Troubleshooting](#troubleshooting)
+1. [Deploy to Azure](#deploy-to-azure)
+2. [Architecture](#architecture)
+3. [Azure Resources](#azure-resources)
+4. [Project Structure](#project-structure)
+5. [File Reference](#file-reference)
+6. [Prerequisites](#prerequisites)
+7. [Environment Setup](#environment-setup)
+8. [Running Locally](#running-locally)
+9. [API Reference](#api-reference)
+10. [How the Agent Works](#how-the-agent-works)
+11. [Data Schema](#data-schema)
+12. [UI Features](#ui-features)
+13. [Blob Storage Contents](#blob-storage-contents)
+14. [Production Deployment](#production-deployment)
+15. [Responsible Fetching (robots.txt)](#responsible-fetching-robotstxt)
+16. [Change Detection (HTTP cache)](#change-detection-http-cache)
+17. [Code Commenting Convention](#code-commenting-convention)
+18. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -662,29 +678,149 @@ Files are uploaded using `DefaultAzureCredential`. The `Storage Blob Data Contri
 
 ## Production Deployment
 
-The `backend/function_app.py` file implements the same API using **Azure Functions v2 (Python)**. To deploy:
+The cloud stack runs the **Flask backend in a container**, the **React frontend on Azure Static Web Apps** (Free SKU), and persists results to **Azure Blob Storage**. Two backend hosting paths are supported by `infra/main.bicep` — pick whichever your subscription has quota for:
 
-1. Provision infrastructure:
-   ```powershell
-   az deployment group create \
-     --resource-group rg-fd-rates \
-     --template-file infra/main.bicep
-   ```
+| Path | When to use | SKU | Cold start | Cost (idle) |
+|---|---|---|---|---|
+| **App Service Plan + Linux Web App for Containers** *(default for the live demo)* | Subscriptions without Container Apps quota in the chosen region. Always-on, no scale-to-zero. | `B1` (1 vCPU / 1.75 GB) — bump to `P0v3`/`P1v3` for production | None | ~$13/mo |
+| **Azure Container Apps (Consumption, scale-to-zero)** | Best when ACA quota is available — pay-per-second, scales to zero between scrapes. | 0.5 vCPU / 1 GiB, 0–2 replicas | 1–3 s | $0–$2/mo |
 
-2. Deploy the function app:
-   ```powershell
-   func azure functionapp publish <function-app-name>
-   ```
+Both paths share the same image, the same managed identity, and the same RBAC.
 
-3. Set application settings on the Function App:
-   - `PROJECT_ENDPOINT`
-   - `MODEL_DEPLOYMENT_NAME`
-   - `STORAGE_ACCOUNT_NAME`
-   - `BLOB_CONTAINER_NAME`
+### Why a container (not Azure Functions)
 
-4. Assign `Storage Blob Data Contributor` to the Function App's system-assigned managed identity on the storage account.
+- **Playwright (headless Chromium)** needs a full container — Functions Consumption cannot host it reliably.
+- Scrape runs can take **>230 s**, exceeding the Functions Consumption HTTP timeout.
+- The Functions entry-point (`backend/function_app.py`) is retained for reference but is **not** the deployment target. The cloud path runs Flask (`dev_server.py`) under `gunicorn` inside the container.
 
-5. Update `REACT_APP_API_BASE_URL` to the Function App URL and redeploy the frontend.
+### Architecture (cloud)
+
+```
+Browser ──> Azure Static Web Apps  (React, Free SKU)
+              │
+              └── HTTPS ──> App Service B1 (Linux Web App for Containers)   ◄── default
+                              OR
+                            Azure Container Apps (Consumption, scale-to-zero)
+                              │
+                              │  (system-assigned managed identity — no secrets)
+                              ├──> Azure AI Foundry  (gpt-4.1)
+                              ├──> Azure AI Document Intelligence (prebuilt-layout)
+                              ├──> Bing Grounding  (web search tool for the agent)
+                              └──> Azure Blob Storage  (fd-rates container)
+```
+
+Image registry: **Azure Container Registry (Basic SKU)**. Images are tagged with the deployment timestamp; the Web App / Container App's managed identity holds `AcrPull` against the registry, so no admin user / passwords are stored.
+
+### One-click deploy (Azure Portal)
+
+The fastest path is the **[Deploy to Azure](#deploy-to-azure)** button at the top of this README. It opens the Azure Portal pre-loaded with `infra/main.json` (the compiled ARM template). You'll be asked for:
+
+| Parameter | Default | Notes |
+|---|---|---|
+| `baseName` | `fdrates` | Used as the prefix for every resource name. |
+| `location` | `centralindia` | Region for storage / container / web. |
+| `aiLocation` | `swedencentral` | Region for `gpt-4.1`. **Must match a region where you hold model quota.** |
+| `swaLocation` | `eastasia` | Static Web App region (Free SKU is restricted). |
+| `deployAppService` | `true` | Set to `false` to skip the App Service plan and use only Container Apps. |
+| `useAcrImage` | `false` | Keep `false` for the first deploy (uses the public quickstart image as a placeholder). Re-deploy with `true` after `az acr build` finishes. |
+
+After the ARM deploy succeeds the Container App / Web App is running the **bootstrap quickstart image**. Continue with the [Re-deploy code only](#re-deploy-code-only) section to push your real backend image and the React build.
+
+### One-shot scripted deployment (recommended)
+
+```powershell
+az login
+az account set --subscription <SUBSCRIPTION_ID>
+
+# Provision + build image + push + deploy frontend, end-to-end
+pwsh ./deploy.ps1 -ResourceGroup rg-fd-rates -Location centralindia
+```
+
+`deploy.ps1` runs three Bicep passes (bootstrap → switch to ACR image → set CORS to the SWA URL), invokes `az acr build` to build the image inside Azure Container Registry (no local Docker daemon required), then builds the React app with `REACT_APP_API_BASE_URL` baked in and pushes it to Static Web Apps via `swa deploy`.
+
+### What gets provisioned
+
+| Resource | SKU | Purpose |
+|---|---|---|
+| Azure Container Registry | Basic | Stores `fdrates-backend:<tag>` |
+| Container Apps Environment + Container App | Consumption, 0–2 replicas | Optional backend host (scale-to-zero) |
+| App Service Plan + Linux Web App for Containers | `B1` Linux | Default backend host (always-on) |
+| Static Web App | Free | React build, global CDN |
+| Storage Account | Standard LRS | `fd-rates` blob container |
+| AI Services + AI Foundry project | S0 | `gpt-4.1` deployment + agents |
+| Document Intelligence | S0 | `prebuilt-layout` for PDFs/images |
+| Bing Grounding | G1 | Web grounding for the Foundry agent |
+| Log Analytics + App Insights | Pay-as-you-go | Telemetry |
+
+### Environment variables on the backend
+
+Set automatically by the Bicep template — no manual configuration:
+
+- `STORAGE_ACCOUNT_NAME`, `BLOB_CONTAINER_NAME`
+- `PROJECT_ENDPOINT`, `MODEL_DEPLOYMENT_NAME=gpt-4.1`
+- `BING_CONNECTION_NAME`, `DOC_INTELLIGENCE_ENDPOINT`
+- `ALLOWED_ORIGINS` (= the SWA URL — used by Flask CORS)
+- `LOCAL_RESULTS_ENABLED=false` (forces blob-only persistence)
+- `APPLICATIONINSIGHTS_CONNECTION_STRING`
+
+### RBAC (auto-assigned to the backend's managed identity)
+
+- **Storage Blob Data Contributor** on the storage account
+- **Cognitive Services OpenAI User** on the AI Services account
+- **Azure AI Developer** on the AI Services account
+- **Cognitive Services User** on Document Intelligence
+- **AcrPull** on the Container Registry
+
+### Cost estimate (demo workload, idle most of the day)
+
+| Item | App Service B1 | Container Apps |
+|---|---|---|
+| Backend hosting | ~$13/mo (24×7 B1) | $0–$2/mo (scale-to-zero) |
+| Container Registry (Basic) | $5 | $5 |
+| Static Web Apps (Free) | $0 | $0 |
+| Storage / App Insights / Log Analytics | < $1.50 | < $1.50 |
+| **Hosting subtotal** | **~$20 / month** | **~$7 / month** |
+| AI Foundry `gpt-4.1` tokens | per token | per token |
+| Document Intelligence pages | per page | per page |
+
+Switch ACR Basic to ghcr.io / Docker Hub if the $5/month is unwelcome — drop the ACR resource from `infra/main.bicep` and set `containerApp.template.containers[0].image` (or `linuxFxVersion`) to the public image reference.
+
+### Re-deploy code only
+
+After the first full deploy, subsequent backend code changes only need an image rebuild:
+
+```powershell
+$tag = Get-Date -Format 'yyyyMMdd-HHmmss'
+az acr build --registry <acr-name> --image "fdrates-backend:$tag" `
+    --file backend/Dockerfile .
+
+# App Service path
+az webapp config container set --name <web-app-name> --resource-group <rg> `
+    --container-image-name "<acr-name>.azurecr.io/fdrates-backend:$tag"
+az webapp restart --name <web-app-name> --resource-group <rg>
+
+# Container Apps path
+az containerapp update --name fdrates-api --resource-group <rg> `
+    --image "<acr-name>.azurecr.io/fdrates-backend:$tag"
+```
+
+Frontend-only changes:
+
+```powershell
+cd frontend
+$env:REACT_APP_API_BASE_URL = 'https://<backend-fqdn>'
+npm run build
+swa deploy ./build --deployment-token <token> --env production
+```
+
+### Live demo (current deployment)
+
+| Component | Resource | URL |
+|---|---|---|
+| Frontend | Static Web App `fdrates-web-4alomdt3qkjk4` | https://wonderful-rock-0bdceac00.7.azurestaticapps.net |
+| Backend | App Service `fdrates-web-app-4alomdt3qkjk4` (B1 Linux) | https://fdrates-web-app-4alomdt3qkjk4.azurewebsites.net |
+| Image | ACR `fdratesacr4alomdt3qkjk4.azurecr.io/fdrates-backend:<timestamp>` | — |
+| Resource group | `rg-fd-rates-aca` (centralindia) | — |
 
 ---
 
@@ -850,7 +986,9 @@ change** — reviewers will ask for it.
 | `json.JSONDecodeError` from agent | Model returned markdown or conversational text | Handled automatically by `_parse_agent_response` — check logs for "retry" messages |
 | `requires_action` never resolves | Tool output not submitted correctly | Verify `tool_call.id` is passed correctly to `submit_tool_outputs` |
 | Empty results / `error` key in result | Bank site is JS-rendered or PDF-based and fallback didn't trigger | Check the activity log for "Playwright fallback" / "DI extract" messages; lower `MIN_PERCENT_SIGNS` in `fd_rate_agent.py` if needed |
-| Playwright `Executable doesn't exist` | Browser binaries not installed | Run `python -m playwright install chromium` |
+| Playwright `Executable doesn't exist` (locally) | Browser binaries not installed | Run `python -m playwright install chromium` |
+| Playwright `Executable doesn't exist at /ms-playwright/chromium_headless_shell-1208/...` (in the Azure container) | `pip` resolved a newer Playwright version than the Docker base image's bundled Chromium | Pin `playwright==1.47.0` in `backend/requirements.txt` to match `mcr.microsoft.com/playwright/python:v1.47.0-jammy`. **Always** pin the Python package to the same version as the base image tag. |
+| ICICI / dynamic-tab page returns 0 categories from the cloud but works locally | The cloud path could not click the slab-toggle React buttons in time | The Playwright fallback now includes a tab-expansion pass that real-clicks every rate-keyword button. Verify by checking the activity log for `rendered with browser` and a content size > 50 KB. |
 | Document Intelligence 401/403 | Missing role on the DI resource | Assign `Cognitive Services User` to your identity on `fdrates-di-kvihlu` |
 | Scrape "failed" but backend still running | Dev proxy dropped the long fetch (~10 min for 20 URLs) | The UI now auto-recovers via `waitForBackendIdle()` — wait for it to load the result |
 | Activity log shows old events | Stale `run_id` from previous run | The poller now locks onto `run_id`; if you still see this, hard-refresh the page |
