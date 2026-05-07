@@ -4,16 +4,16 @@ An AI-powered Fixed Deposit rate aggregator for Indian banks. Uses **Azure AI Fo
 
 ## Deploy to Azure
 
-Click the button below to provision the full stack into your own Azure subscription. The template provisions storage, AI Foundry + `gpt-4.1`, Document Intelligence, App Insights, an Azure Container Registry, an App Service Plan + Linux Web App for Containers (B1), an ACA Environment + Container App, and a Static Web App. It also provisions a Bing Grounding resource for optional future integration, but the current backend runtime uses custom function tools (`fetch_webpage`, `fetch_pdf`, `fetch_image`). After the ARM template completes, run `pwsh ./deploy.ps1 -ResourceGroup <rg> -Location <loc>` to build the backend image and push the React build (or follow the manual steps in [Production Deployment](#production-deployment)).
+Click the button below to provision the full stack into your own Azure subscription. The template provisions storage, AI Foundry + `gpt-4.1`, Document Intelligence, App Insights, an Azure Container Registry, an App Service Plan + Linux Web App for Containers (B1, the **active production host**), an ACA Environment + Container App (optional), and a Static Web App. It also provisions a Bing Grounding resource for optional future integration, but the current backend runtime uses custom function tools (`fetch_webpage`, `fetch_pdf`, `fetch_image`). After the ARM template completes, build and push the backend image via `az acr build`, then wire it to the App Service using `az webapp config container set` (or follow the manual steps in [Production Deployment](#production-deployment)). Note: `deploy.ps1` automates the **Container Apps** path — the live demo was deployed to App Service via Azure Portal Deployment Center.
 
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FKasamShaikh%2Ffd-rates-with-foundary%2Fmaster%2Finfra%2Fmain.json)
 [![Visualize](https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/1-CONTRIBUTION-GUIDE/images/visualizebutton.svg?sanitize=true)](https://armviz.io/#/?load=https%3A%2F%2Fraw.githubusercontent.com%2FKasamShaikh%2Ffd-rates-with-foundary%2Fmaster%2Finfra%2Fmain.json)
 
-> **Prerequisites for the button:** an Azure subscription with quota for `gpt-4.1` (Sweden Central by default — change `aiLocation` if your quota is elsewhere), `Owner` or `User Access Administrator` rights on the target resource group (RBAC role assignments are part of the template), and the `Microsoft.App`, `Microsoft.CognitiveServices`, `Microsoft.Web`, `Microsoft.ContainerRegistry`, and `Microsoft.Bing` providers registered. The template defaults to `B1` App Service for production-style hosting; toggle `deployAppService=false` to skip it and use only Container Apps.
+> **Prerequisites for the button:** an Azure subscription with quota for `gpt-4.1` (Sweden Central by default — change `aiLocation` if your quota is elsewhere), `Owner` or `User Access Administrator` rights on the target resource group (RBAC role assignments are part of the template), and the `Microsoft.App`, `Microsoft.CognitiveServices`, `Microsoft.Web`, `Microsoft.ContainerRegistry`, and `Microsoft.Bing` providers registered. The template defaults to `B1` App Service (`deployAppService=true`) as the production host — this is what the live demo uses. Container Apps is provisioned alongside but was ruled out for the live demo due to subscription quota in this region.
 
 ## What's New
 
-- **Production hosting on Azure App Service (Linux Web App for Containers, B1)** — the live demo now runs on App Service alongside ACA, with the Foundry/agent stack identical. App Service was added because the demo subscription has no ACA quota in this region; the Bicep template now provisions both and you can deploy to either.
+- **Production hosting on Azure App Service (Linux Web App for Containers, B1)** — the live demo runs on App Service (`fdrates-web-app-4alomdt3qkjk4`, image `fdrates-backend:20260427-224341`, deployed via Azure Portal Deployment Center). ACA was ruled out due to subscription quota in this region. The Bicep template provisions both; `deploy.ps1` automates the ACA path while the App Service path uses `az webapp config container set` or the Portal Deployment Center.
 - **Dynamic tab/accordion expansion in the Playwright fallback** — for rate pages where amount slabs (e.g. ICICI's *"Less than ₹3 Cr."*, *"5 - < 5.10 Cr."*, *"More than 500 Cr."*) live behind unlabelled React `<button>` toggles, the renderer now finds rate-keyword buttons via JS, real-clicks each one with `force=true`, and concatenates the captured snapshots into an injected `<div id="__expanded_tabs__">`. Lifted ICICI extraction from 0 categories / 5,359 chars to 30 rates / 156 KB.
 - **PDF asset discovery hardened** — `<object data="…pdf">`, `<embed src="…pdf">`, and `<iframe type="application/pdf">` are now promoted to the top of the asset list (score `+1000`). Fixed Punjab & Sind Bank where the bulk-deposit rate card is exposed only as a `<object>` element.
 - **Playwright pinned to base-image version** — `playwright==1.47.0` is now pinned in `requirements.txt` to match `mcr.microsoft.com/playwright/python:v1.47.0-jammy`. Without this pin, pip resolves the latest Playwright while the Docker image only ships the older Chromium, and `BrowserType.launch` silently fails with *"Executable doesn't exist"*. (See troubleshooting table below.)
@@ -699,8 +699,8 @@ Both paths share the same image, the same managed identity, and the same RBAC.
 ```
 Browser ──> Azure Static Web Apps  (React, Free SKU)
               │
-              └── HTTPS ──> App Service B1 (Linux Web App for Containers)   ◄── default
-                              OR
+              └── HTTPS ──> App Service B1 (Linux Web App for Containers)   ◄── LIVE DEMO
+                              OR (if ACA quota available)
                             Azure Container Apps (Consumption, scale-to-zero)
                               │
                               │  (system-assigned managed identity — no secrets)
@@ -727,17 +727,29 @@ The fastest path is the **[Deploy to Azure](#deploy-to-azure)** button at the to
 
 After the ARM deploy succeeds the Container App / Web App is running the **bootstrap quickstart image**. Continue with the [Re-deploy code only](#re-deploy-code-only) section to push your real backend image and the React build.
 
-### One-shot scripted deployment (recommended)
+### One-shot scripted deployment (Container Apps path)
 
 ```powershell
 az login
 az account set --subscription <SUBSCRIPTION_ID>
 
-# Provision + build image + push + deploy frontend, end-to-end
+# Provision + build image + push + deploy frontend via Container Apps
 pwsh ./deploy.ps1 -ResourceGroup rg-fd-rates -Location centralindia
 ```
 
-`deploy.ps1` runs three Bicep passes (bootstrap → switch to ACR image → set CORS to the SWA URL), invokes `az acr build` to build the image inside Azure Container Registry (no local Docker daemon required), then builds the React app with `REACT_APP_API_BASE_URL` baked in and pushes it to Static Web Apps via `swa deploy`.
+`deploy.ps1` runs three Bicep passes (bootstrap → switch to ACR image → set CORS to the SWA URL), invokes `az acr build` to build the image inside Azure Container Registry (no local Docker daemon required), then builds the React app with `REACT_APP_API_BASE_URL` baked in and pushes it to Static Web Apps via `swa deploy`. **This script targets Container Apps.** The live demo uses App Service instead — see [Re-deploy code only](#re-deploy-code-only) for the App Service commands.
+
+### App Service deployment (active live path)
+
+```powershell
+$tag = Get-Date -Format 'yyyyMMdd-HHmmss'
+az acr build --registry <acr-name> --image "fdrates-backend:$tag" `
+    --file backend/Dockerfile .
+
+az webapp config container set --name <web-app-name> --resource-group <rg> `
+    --container-image-name "<acr-name>.azurecr.io/fdrates-backend:$tag"
+az webapp restart --name <web-app-name> --resource-group <rg>
+```
 
 ### What gets provisioned
 
