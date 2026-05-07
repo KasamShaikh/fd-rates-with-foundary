@@ -1,10 +1,10 @@
 ﻿# FD Rate Aggregator
 
-An AI-powered Fixed Deposit rate aggregator for Indian banks. Uses **Azure AI Foundry** (`gpt-4.1`) as an intelligent agent with a custom `fetch_webpage` tool to scrape, parse, and structure FD rate data from bank websites. JS-rendered pages fall back to a **Playwright** headless browser, and PDFs/images are extracted with **Azure AI Document Intelligence** (`prebuilt-layout`). Results are stored in **Azure Blob Storage** and exposed through a **Flask REST API** consumed by a **React** browser UI with a live progress feed.
+An AI-powered Fixed Deposit rate aggregator for Indian banks. Uses **Azure AI Foundry** (`gpt-4.1`) as an intelligent agent with custom function tools (`fetch_webpage`, `fetch_pdf`, `fetch_image`) to scrape and structure FD rate data from bank websites, linked PDFs, and image rate cards. JS-rendered pages fall back to a **Playwright** headless browser, and PDFs/images are extracted with **Azure AI Document Intelligence** (`prebuilt-layout`). Results are stored in **Azure Blob Storage** and exposed through a **Flask REST API** consumed by a **React** browser UI with a live progress feed.
 
 ## Deploy to Azure
 
-Click the button below to provision the full stack into your own Azure subscription. The template provisions storage, AI Foundry + `gpt-4.1`, Document Intelligence, Bing Grounding, App Insights, an Azure Container Registry, an App Service Plan + Linux Web App for Containers (B1), an ACA Environment + Container App, and a Static Web App. After the ARM template completes, run `pwsh ./deploy.ps1 -ResourceGroup <rg> -Location <loc>` to build the backend image and push the React build (or follow the manual steps in [Production Deployment](#production-deployment)).
+Click the button below to provision the full stack into your own Azure subscription. The template provisions storage, AI Foundry + `gpt-4.1`, Document Intelligence, App Insights, an Azure Container Registry, an App Service Plan + Linux Web App for Containers (B1), an ACA Environment + Container App, and a Static Web App. It also provisions a Bing Grounding resource for optional future integration, but the current backend runtime uses custom function tools (`fetch_webpage`, `fetch_pdf`, `fetch_image`). After the ARM template completes, run `pwsh ./deploy.ps1 -ResourceGroup <rg> -Location <loc>` to build the backend image and push the React build (or follow the manual steps in [Production Deployment](#production-deployment)).
 
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FKasamShaikh%2Ffd-rates-with-foundary%2Fmaster%2Finfra%2Fmain.json)
 [![Visualize](https://raw.githubusercontent.com/Azure/azure-quickstart-templates/master/1-CONTRIBUTION-GUIDE/images/visualizebutton.svg?sanitize=true)](https://armviz.io/#/?load=https%3A%2F%2Fraw.githubusercontent.com%2FKasamShaikh%2Ffd-rates-with-foundary%2Fmaster%2Finfra%2Fmain.json)
@@ -80,13 +80,11 @@ Click the button below to provision the full stack into your own Azure subscript
 │  Account : web-tools   Project : prj-web-tools               │
 │  Region  : South India                                       │
 │                                                              │
-│  Tool: fetch_webpage(url)                                    │
-│    1. requests.get() + BeautifulSoup text extraction         │
-│    2. If <MIN_PERCENT_SIGNS rate-like signals →              │
-│         Playwright headless Chromium re-render               │
-│    3. If URL ends in .pdf / image →                          │
-│         Azure AI Document Intelligence (prebuilt-layout)     │
-│    → returns ≤15,000 chars of visible text to the model      │
+│  Tools:                                                      │
+│    - fetch_webpage(url): HTML text + discovered assets       │
+│    - fetch_pdf(url): PDF extraction via Document Intelligence │
+│    - fetch_image(url): OCR/image extraction via DI            │
+│    → returns ≤15,000 chars of context to the model           │
 │                                                              │
 │  Manual tool-call loop (up to 8 rounds per bank)             │
 │  Emits progress events to a thread-safe ring buffer          │
@@ -154,7 +152,7 @@ fd-rates-with-foundary/
 │   ├── dev_server.py           ← Flask REST API (local dev server)
 │   ├── function_app.py         ← Azure Functions v2 (Python) — production
 │   ├── host.json               ← Azure Functions host config
-│   ├── local.settings.json     ← Azure Functions local environment variables
+│   ├── local.settings.json     ← Optional local Functions settings (not committed)
 │   ├── requirements.txt        ← Python dependencies
 │   ├── urls.json               ← Persisted bank URL list (20 banks)
 │   ├── _local_results/         ← Local JSON/Excel result cache (dev only, gitignored)
@@ -194,7 +192,7 @@ Core AI agent module.
 
 | Function | Purpose |
 |---|---|
-| `create_agent(agents_client)` | Creates a Foundry agent with `gpt-4.1` and registers the `fetch_webpage` function tool schema |
+| `create_agent(agents_client)` | Creates a Foundry agent with `gpt-4.1` and registers `fetch_webpage`, `fetch_pdf`, and `fetch_image` function tool schemas |
 | `fetch_webpage_handler(url)` | Three-tier fetch: (1) `requests.get` + BeautifulSoup; (2) if rate-like signals (`%`) below `MIN_PERCENT_SIGNS=20`, re-render with Playwright; (3) if URL is `.pdf` or image, run Document Intelligence `prebuilt-layout`. Returns ≤ 15,000 chars of visible text and emits per-URL progress events. |
 | `scrape_bank_url(...)` | Creates a thread, sends a user message, manually polls `run.status`, handles `requires_action` tool call rounds (max 8), captures `run.usage` token counts |
 | `_parse_agent_response(...)` | Strips markdown fences, attempts `json.loads()`, falls back to substring extraction between first `{` and last `}`, triggers a single auto-retry if both fail |
@@ -206,8 +204,11 @@ Core AI agent module.
 runs.create()
   → poll while "queued" / "in_progress"
   → while status == "requires_action":
-      for each tool_call in required_action.submit_tool_outputs.tool_calls:
-          call fetch_webpage_handler(url)
+        for each tool_call in required_action.submit_tool_outputs.tool_calls:
+          dispatch by tool name:
+          fetch_webpage -> fetch_webpage_handler
+          fetch_pdf -> extract_pdf
+          fetch_image -> extract_image
       runs.submit_tool_outputs(tool_outputs)
       poll again
   → capture run.usage
@@ -300,17 +301,17 @@ Azure Functions v2 host configuration. Extension bundle `[4.*, 5.0.0)`, route pr
 
 ---
 
-### `backend/local.settings.json`
+### `.env` / `.env.template`
 
-Local environment variables for Azure Functions and the dev server. Set `IsEncrypted: false`. Values:
+Local environment variables for the Flask dev server (and shared backend code) are loaded from the project-root `.env` file. Copy `.env.template` to `.env` and set values.
 
 | Key | Value |
 |---|---|
-| `PROJECT_ENDPOINT` | `https://web-tools.services.ai.azure.com/api/projects/prj-web-tools` |
+| `PROJECT_ENDPOINT` | `https://<your-ai-services>.services.ai.azure.com/api/projects/<project-name>` |
 | `MODEL_DEPLOYMENT_NAME` | `gpt-4.1` |
 | `BLOB_CONTAINER_NAME` | `fd-rates` |
-| `STORAGE_ACCOUNT_NAME` | `fdratesstxf6etxfnua6lq` |
-| `DOC_INTELLIGENCE_ENDPOINT` | `https://fdrates-di-kvihlu.cognitiveservices.azure.com/` |
+| `STORAGE_ACCOUNT_NAME` | `<your-storage-account-name>` |
+| `DOC_INTELLIGENCE_ENDPOINT` | `https://<your-di-resource>.cognitiveservices.azure.com/` |
 
 ---
 
@@ -581,15 +582,15 @@ Generates a formatted Excel workbook and uploads it to blob storage.
 
 ## How the Agent Works
 
-1. **Agent creation** — a Foundry agent is created with `gpt-4.1` and one registered function tool: `fetch_webpage(url: string)`.
+1. **Agent creation** — a Foundry agent is created with `gpt-4.1` and three registered function tools: `fetch_webpage(url)`, `fetch_pdf(url)`, and `fetch_image(url)`.
 
 2. **Thread per bank** — each bank gets its own conversation thread. The user message instructs the agent to extract all FD rate information from the given URL and return it as structured JSON.
 
-3. **Tool call loop** — up to **5 rounds** per bank:
-   - The model decides to call `fetch_webpage` with a specific URL
-   - `fetch_webpage_handler` fetches the page with a Chrome User-Agent, uses BeautifulSoup to remove `<script>`, `<style>`, `<nav>`, `<header>`, `<footer>` tags, collapses whitespace, and returns the first **15,000 characters** of visible text
-   - Tool output is submitted; the model continues reasoning
-   - If the model needs additional pages it calls `fetch_webpage` again in the next round
+3. **Tool call loop** — up to **8 rounds** per bank:
+  - The model decides which tool to call (`fetch_webpage`, `fetch_pdf`, `fetch_image`)
+  - `fetch_webpage_handler` fetches and cleans HTML text, discovers PDF/image assets, and can trigger Playwright re-render for JS-heavy pages
+  - `fetch_pdf` / `fetch_image` extract text/tables using Azure DI `prebuilt-layout`
+  - Tool outputs are submitted and the model continues reasoning until completion
 
 4. **Token tracking** — `run.usage.prompt_tokens`, `run.usage.completion_tokens`, and `run.usage.total_tokens` are captured after each run completion and aggregated across all banks and retry attempts.
 
@@ -705,7 +706,7 @@ Browser ──> Azure Static Web Apps  (React, Free SKU)
                               │  (system-assigned managed identity — no secrets)
                               ├──> Azure AI Foundry  (gpt-4.1)
                               ├──> Azure AI Document Intelligence (prebuilt-layout)
-                              ├──> Bing Grounding  (web search tool for the agent)
+                              ├──> Bing Grounding  (provisioned, optional)
                               └──> Azure Blob Storage  (fd-rates container)
 ```
 
@@ -749,7 +750,7 @@ pwsh ./deploy.ps1 -ResourceGroup rg-fd-rates -Location centralindia
 | Storage Account | Standard LRS | `fd-rates` blob container |
 | AI Services + AI Foundry project | S0 | `gpt-4.1` deployment + agents |
 | Document Intelligence | S0 | `prebuilt-layout` for PDFs/images |
-| Bing Grounding | G1 | Web grounding for the Foundry agent |
+| Bing Grounding | G1 | Provisioned for optional future web-grounding integration (not used by current backend tool loop) |
 | Log Analytics + App Insights | Pay-as-you-go | Telemetry |
 
 ### Environment variables on the backend
@@ -758,7 +759,7 @@ Set automatically by the Bicep template — no manual configuration:
 
 - `STORAGE_ACCOUNT_NAME`, `BLOB_CONTAINER_NAME`
 - `PROJECT_ENDPOINT`, `MODEL_DEPLOYMENT_NAME=gpt-4.1`
-- `BING_CONNECTION_NAME`, `DOC_INTELLIGENCE_ENDPOINT`
+- `DOC_INTELLIGENCE_ENDPOINT`
 - `ALLOWED_ORIGINS` (= the SWA URL — used by Flask CORS)
 - `LOCAL_RESULTS_ENABLED=false` (forces blob-only persistence)
 - `APPLICATIONINSIGHTS_CONNECTION_STRING`
