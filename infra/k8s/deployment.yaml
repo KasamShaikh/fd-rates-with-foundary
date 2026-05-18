@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fd-rates-api
+  namespace: __NAMESPACE__
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fd-rates-api
+  template:
+    metadata:
+      labels:
+        app: fd-rates-api
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: __SERVICE_ACCOUNT_NAME__
+      containers:
+      - name: backend
+        image: __IMAGE__
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+        env:
+__AZURE_CLIENT_ID_ENV__
+        - name: STORAGE_ACCOUNT_NAME
+          value: __STORAGE_ACCOUNT_NAME__
+        - name: BLOB_CONTAINER_NAME
+          value: fd-rates
+        - name: PROJECT_ENDPOINT
+          value: __PROJECT_ENDPOINT__
+        - name: MODEL_DEPLOYMENT_NAME
+          value: gpt-4.1
+        - name: BING_CONNECTION_NAME
+          value: bing-grounding-connection
+        - name: DOC_INTELLIGENCE_ENDPOINT
+          value: __DOC_INTELLIGENCE_ENDPOINT__
+        - name: ALLOWED_ORIGINS
+          value: __ALLOWED_ORIGINS__
+        - name: LOCAL_RESULTS_ENABLED
+          value: "true"

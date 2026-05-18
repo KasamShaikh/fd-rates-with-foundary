@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fd-rates-web
+  namespace: __NAMESPACE__
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fd-rates-web
+  template:
+    metadata:
+      labels:
+        app: fd-rates-web
+    spec:
+      containers:
+      - name: frontend
+        image: __FRONTEND_IMAGE__
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 80
