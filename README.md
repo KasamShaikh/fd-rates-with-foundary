@@ -13,6 +13,7 @@ Click the button below to provision the full stack into your own Azure subscript
 
 ## What's New
 
+- **AKS deployment path added** — the app can now be hosted on Azure Kubernetes Service alongside the App Service / Container Apps options. A multi-stage Nginx + React image (`frontend/Dockerfile`, `frontend/nginx.conf`) serves the SPA and reverse-proxies `/api/` to the in-cluster backend Service. New Kubernetes manifests live in `infra/k8s/` (backend Deployment/Service, frontend Deployment/Service, ServiceAccount/Namespace). The end-to-end pipeline is automated by `deploy-aks-swa.ps1` (ensure infra → `az acr build` backend + frontend → render manifests → `kubectl apply` → wait for rollouts → return the frontend LoadBalancer URL). See [AKS deployment](#aks-deployment) below.
 - **Production hosting on Azure App Service (Linux Web App for Containers, B1)** — the live demo runs on App Service (`fdrates-web-app-4alomdt3qkjk4`, image `fdrates-backend:20260427-224341`, deployed via Azure Portal Deployment Center). ACA was ruled out due to subscription quota in this region. The Bicep template provisions both; `deploy.ps1` automates the ACA path while the App Service path uses `az webapp config container set` or the Portal Deployment Center.
 - **Dynamic tab/accordion expansion in the Playwright fallback** — for rate pages where amount slabs (e.g. ICICI's *"Less than ₹3 Cr."*, *"5 - < 5.10 Cr."*, *"More than 500 Cr."*) live behind unlabelled React `<button>` toggles, the renderer now finds rate-keyword buttons via JS, real-clicks each one with `force=true`, and concatenates the captured snapshots into an injected `<div id="__expanded_tabs__">`. Lifted ICICI extraction from 0 categories / 5,359 chars to 30 rates / 156 KB.
 - **PDF asset discovery hardened** — `<object data="…pdf">`, `<embed src="…pdf">`, and `<iframe type="application/pdf">` are now promoted to the top of the asset list (score `+1000`). Fixed Punjab & Sind Bank where the bulk-deposit rate card is exposed only as a `<object>` element.
@@ -834,6 +835,48 @@ swa deploy ./build --deployment-token <token> --env production
 | Backend | App Service `fdrates-web-app-4alomdt3qkjk4` (B1 Linux) | https://fdrates-web-app-4alomdt3qkjk4.azurewebsites.net |
 | Image | ACR `fdratesacr4alomdt3qkjk4.azurecr.io/fdrates-backend:<timestamp>` | — |
 | Resource group | `rg-fd-rates-aca` (centralindia) | — |
+
+### AKS deployment
+
+An alternative hosting path runs the full stack on **Azure Kubernetes Service**: the backend (Flask + Playwright + Document Intelligence) and the React SPA (served by Nginx) both run as pods inside the cluster. Only the frontend Service is publicly exposed as a `LoadBalancer`; it reverse-proxies `/api/` to the backend's in-cluster `ClusterIP` Service. This keeps the API off the public internet while still serving the SPA from a single origin (no CORS).
+
+Files involved:
+
+| File | Purpose |
+|---|---|
+| `frontend/Dockerfile` | Multi-stage build — Node 20 builds the React app, Nginx 1.27 serves `/build` and proxies `/api/` to the backend. |
+| `frontend/nginx.conf` | Listens on `:80`; `location /api/ → proxy_pass http://fd-rates-api`; SPA fallback (`try_files $uri /index.html`). |
+| `infra/k8s/serviceaccount.yaml` | Namespace + `fd-rates-sa` ServiceAccount (with placeholder for an optional workload-identity annotation). |
+| `infra/k8s/deployment.yaml` | Backend `fd-rates-api` Deployment, env vars for `STORAGE_ACCOUNT_NAME`, `PROJECT_ENDPOINT`, `MODEL_DEPLOYMENT_NAME`, `DOC_INTELLIGENCE_ENDPOINT`, `ALLOWED_ORIGINS`. |
+| `infra/k8s/service.yaml` | Backend Service `fd-rates-api` — type `ClusterIP` (internal only). |
+| `infra/k8s/frontend-deployment.yaml` | Frontend `fd-rates-web` Deployment (Nginx + React image). |
+| `infra/k8s/frontend-service.yaml` | Frontend Service `fd-rates-web` — type `LoadBalancer` (public). |
+| `infra/aks-swa.bicep` | AKS cluster + ACR + supporting infra for this path. |
+| `deploy-aks-swa.ps1` | End-to-end deployment pipeline. |
+
+Pipeline (`deploy-aks-swa.ps1`):
+
+1. Ensure / deploy `infra/aks-swa.bicep` into the target resource group.
+2. Start the AKS cluster if it is stopped, attach ACR via `az aks update --attach-acr`, and merge kubeconfig (`az aks get-credentials`).
+3. `az acr build` for the backend image (`fdrates-backend:<tag>`).
+4. `az acr build` for the frontend image (`fdrates-frontend:<tag>`).
+5. Render the YAML manifests, substituting `__NAMESPACE__`, `__IMAGE__`, `__FRONTEND_IMAGE__`, `__STORAGE_ACCOUNT_NAME__`, `__PROJECT_ENDPOINT__`, `__DOC_INTELLIGENCE_ENDPOINT__`, `__ALLOWED_ORIGINS__`, and the workload-identity placeholders.
+6. `kubectl apply -f` for each manifest.
+7. `kubectl rollout status` on both Deployments.
+8. Poll `kubectl get svc fd-rates-web` until the `LoadBalancer` IP is assigned and print `http://<ip>/` as the public URL.
+
+Quick run:
+
+```powershell
+az login
+az account set --subscription <SUBSCRIPTION_ID>
+
+pwsh ./deploy-aks-swa.ps1 -ResourceGroup rg-fd-rates-aca -Location centralindia -SkipWhatIf
+```
+
+> **Federated identity / workload identity:** if your tenant does not allow federated identity credentials, run the script **without** the `-EnableWorkloadIdentity` switch. The cluster + ACR attach (`az aks update --attach-acr`) still works for image pull, but the backend pod will not have an Entra-token credential source. In that case either (a) switch the backend to API keys for Storage / AI Services / Document Intelligence, or (b) grant the AKS kubelet user-assigned managed identity the required RBAC roles so `DefaultAzureCredential` can use IMDS.
+
+Live AKS test instance (sample run): `http://20.204.251.67/` (frontend `LoadBalancer` IP from `fdratesaks-aks-zjyxlol22toso`, namespace `fd-rates-aks`).
 
 ---
 
