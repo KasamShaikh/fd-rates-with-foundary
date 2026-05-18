@@ -22,6 +22,10 @@ frontend/build/
 **/_local_results/
 *.xlsx
 
+# Generated Docker image archives
+artifacts/
+*.tar
+
 # IDE
 .vscode/
 .idea/

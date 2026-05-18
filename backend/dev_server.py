@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from azure.storage.blob import BlobServiceClient, ContentSettings
 from azure.identity import DefaultAzureCredential
@@ -27,7 +27,11 @@ if _env_path.exists():
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
+# [SPA-SERVE-FROM-BACKEND] Configure Flask to serve the prebuilt React app
+# from /app/static (inside the container). To revert: change back to
+# `app = Flask(__name__)` and remove the SPA routes added below.
+_STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+app = Flask(__name__, static_folder=_STATIC_DIR, static_url_path="")
 
 # Allowed CORS origins. Defaults to the local dev server. In cloud, set
 # ALLOWED_ORIGINS to a comma-separated list e.g.
@@ -623,6 +627,28 @@ def export_excel():
             "exported_at": timestamp.isoformat(),
         }
     )
+
+
+# [SPA-SERVE-FROM-BACKEND] Serve the React SPA index for `/` and any path
+# that isn't an /api route (so client-side routing works). To revert: delete
+# the two route definitions below.
+@app.route("/", methods=["GET"])
+def _spa_index():
+    if not os.path.isdir(_STATIC_DIR):
+        return jsonify({"status": "ok", "note": "frontend not bundled"}), 200
+    return send_from_directory(_STATIC_DIR, "index.html")
+
+
+@app.route("/<path:path>", methods=["GET"])
+def _spa_catch_all(path):
+    if path.startswith("api/"):
+        return jsonify({"error": "Not found"}), 404
+    full_path = os.path.join(_STATIC_DIR, path)
+    if os.path.isfile(full_path):
+        return send_from_directory(_STATIC_DIR, path)
+    if os.path.isdir(_STATIC_DIR):
+        return send_from_directory(_STATIC_DIR, "index.html")
+    return jsonify({"error": "Not found"}), 404
 
 
 if __name__ == "__main__":

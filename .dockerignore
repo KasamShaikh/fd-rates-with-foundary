@@ -9,9 +9,18 @@
 .github
 .vscode
 
-# Frontend / infra not needed in backend image
-frontend/
+# infra not needed in backend image
 infra/
+
+# [SPA-SERVE-FROM-BACKEND] Frontend source excluded, but build output is kept
+# so the Dockerfile can copy frontend/build into the image and serve the SPA
+# from Flask. To revert, replace the two lines below with: frontend/
+frontend/node_modules/
+frontend/src/
+frontend/public/
+frontend/package.json
+frontend/package-lock.json
+frontend/.env.development
 
 # Backend local caches and dev outputs
 backend/_local_results/

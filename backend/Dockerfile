@@ -20,9 +20,14 @@ WORKDIR /app
 COPY backend/requirements.txt /app/requirements.txt
 RUN pip install -r /app/requirements.txt
 
-# Copy backend source. Frontend, infra, .env, and local result caches are
-# excluded by .dockerignore.
+# Copy backend source. Frontend source, infra, .env, and local result caches
+# are excluded by .dockerignore.
 COPY backend/ /app/
+
+# [SPA-SERVE-FROM-BACKEND] Copy the prebuilt React app so Flask can serve it.
+# Requires `npm run build` to have run before `docker build` / `az acr build`.
+# To revert: delete the line below.
+COPY frontend/build/ /app/static/
 
 EXPOSE 8000
 

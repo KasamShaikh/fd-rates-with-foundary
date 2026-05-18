@@ -39,8 +39,8 @@ param swaLocation string = 'eastasia'
 @description('Client IPs allowed to access the storage account data plane. Empty = allow all.')
 param allowedClientIpAddresses array = []
 
-@description('Also deploy backend on an App Service Plan (Linux Web App for Containers) alongside Container Apps.')
-param deployAppService bool = false
+@description('Deploy backend on an App Service Plan (Linux Web App for Containers). Set false to use Container Apps instead.')
+param deployAppService bool = true
 
 @description('App Service Plan SKU when deployAppService=true (e.g. B1, B2, P0v3, P1v3).')
 param appServicePlanSku string = 'B1'

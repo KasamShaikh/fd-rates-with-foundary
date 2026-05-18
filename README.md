@@ -13,6 +13,8 @@ Click the button below to provision the full stack into your own Azure subscript
 
 ## What's New
 
+- **Four deployment topologies, one repo** — see [Architecture (cloud)](#architecture-cloud) for the comparison table and Mermaid diagrams: (A) SWA → App Service, (B) single-container App Service serving the SPA from Flask, (C) SWA → AKS, (D) all-on-AKS with Nginx reverse-proxying `/api/` to a `ClusterIP` backend.
+- **SPA-served-from-backend mode** — `backend/Dockerfile` now copies `frontend/build/` into the image, and `backend/dev_server.py` adds a SPA catch-all route. This collapses topology (A) into topology (B) — one App Service, one URL, no CORS, no Static Web App needed. `deploy.ps1` defaults to this same-origin path via `-UseExistingResourcesOnly $true`. Markers: comments tagged `[SPA-SERVE-FROM-BACKEND]`. `.dockerignore` keeps `frontend/build/` inside the build context for this reason.
 - **AKS deployment path added** — the app can now be hosted on Azure Kubernetes Service alongside the App Service / Container Apps options. A multi-stage Nginx + React image (`frontend/Dockerfile`, `frontend/nginx.conf`) serves the SPA and reverse-proxies `/api/` to the in-cluster backend Service. New Kubernetes manifests live in `infra/k8s/` (backend Deployment/Service, frontend Deployment/Service, ServiceAccount/Namespace). The end-to-end pipeline is automated by `deploy-aks-swa.ps1` (ensure infra → `az acr build` backend + frontend → render manifests → `kubectl apply` → wait for rollouts → return the frontend LoadBalancer URL). See [AKS deployment](#aks-deployment) below.
 - **Production hosting on Azure App Service (Linux Web App for Containers, B1)** — the live demo runs on App Service (`fdrates-web-app-4alomdt3qkjk4`, image `fdrates-backend:20260427-224341`, deployed via Azure Portal Deployment Center). ACA was ruled out due to subscription quota in this region. The Bicep template provisions both; `deploy.ps1` automates the ACA path while the App Service path uses `az webapp config container set` or the Portal Deployment Center.
 - **Dynamic tab/accordion expansion in the Playwright fallback** — for rate pages where amount slabs (e.g. ICICI's *"Less than ₹3 Cr."*, *"5 - < 5.10 Cr."*, *"More than 500 Cr."*) live behind unlabelled React `<button>` toggles, the renderer now finds rate-keyword buttons via JS, real-clicks each one with `force=true`, and concatenates the captured snapshots into an injected `<div id="__expanded_tabs__">`. Lifted ICICI extraction from 0 categories / 5,359 chars to 30 rates / 156 KB.
@@ -697,21 +699,74 @@ Both paths share the same image, the same managed identity, and the same RBAC.
 
 ### Architecture (cloud)
 
-```
-Browser ──> Azure Static Web Apps  (React, Free SKU)
-              │
-              └── HTTPS ──> App Service B1 (Linux Web App for Containers)   ◄── LIVE DEMO
-                              OR (if ACA quota available)
-                            Azure Container Apps (Consumption, scale-to-zero)
-                              │
-                              │  (system-assigned managed identity — no secrets)
-                              ├──> Azure AI Foundry  (gpt-4.1)
-                              ├──> Azure AI Document Intelligence (prebuilt-layout)
-                              ├──> Bing Grounding  (provisioned, optional)
-                              └──> Azure Blob Storage  (fd-rates container)
+The same backend code, the same React frontend, and the same Azure AI / Storage / Document Intelligence dependencies can be deployed in four different topologies depending on quota, network posture, and operational preference. Pick one — they are all wired up in this repo.
+
+| # | Topology | Frontend host | Backend host | Driver | Public endpoint(s) |
+|---|---|---|---|---|---|
+| **A** | **SWA → App Service** *(original live demo)* | Azure Static Web Apps (Free) | App Service B1 (Linux Web App for Containers) | `infra/main.bicep` + `az webapp config container set` | SWA URL + Web App URL (CORS-allowed) |
+| **B** | **Single-container App Service** *(current default in `deploy.ps1`)* | Served by Flask from `/static` inside the backend container | App Service B1 (same container) | `deploy.ps1` (`UseExistingResourcesOnly=$true`) | App Service URL only (same-origin, no CORS) |
+| **C** | **SWA → AKS** | Azure Static Web Apps (Free) | AKS pod, exposed by `LoadBalancer` Service | `deploy-aks-swa.ps1` (backend image only) + manual SWA build | SWA URL + AKS LB IP (CORS-allowed) |
+| **D** | **All-on-AKS** *(current AKS demo)* | Nginx + React pod inside AKS, reverse-proxies `/api/` to backend | AKS pod, exposed only as `ClusterIP` | `deploy-aks-swa.ps1` (full pipeline) | Single AKS `LoadBalancer` IP |
+
+#### A — SWA → App Service (CORS, two URLs)
+
+```mermaid
+flowchart LR
+    user([Browser]) -- HTTPS --> swa[Azure Static Web Apps<br/>React SPA · Free SKU]
+    swa -- CORS HTTPS<br/>/api/... --> app[App Service B1<br/>Linux Web App for Containers<br/>fdrates-backend image]
+    app -- Managed Identity --> ai[Azure AI Foundry<br/>gpt-4.1]
+    app -- Managed Identity --> di[Document Intelligence<br/>prebuilt-layout]
+    app -- Managed Identity --> blob[(Blob Storage<br/>fd-rates container)]
+    app -- AcrPull --> acr[(Azure Container Registry<br/>Basic)]
 ```
 
-Image registry: **Azure Container Registry (Basic SKU)**. Images are tagged with the deployment timestamp; the Web App / Container App's managed identity holds `AcrPull` against the registry, so no admin user / passwords are stored.
+#### B — Single-container App Service (SPA served by Flask, same-origin)
+
+`backend/Dockerfile` copies `frontend/build/` into `/app/static`, and `backend/dev_server.py` adds a catch-all route that returns the SPA's `index.html` for any non-`/api/` path. No SWA is needed; the React app issues same-origin `/api/...` calls so the browser never sees CORS.
+
+```mermaid
+flowchart LR
+    user([Browser]) -- HTTPS --> app[App Service B1<br/>Single container<br/>Flask + React build]
+    app -- Managed Identity --> ai[Azure AI Foundry<br/>gpt-4.1]
+    app -- Managed Identity --> di[Document Intelligence<br/>prebuilt-layout]
+    app -- Managed Identity --> blob[(Blob Storage<br/>fd-rates container)]
+    app -- AcrPull --> acr[(Azure Container Registry<br/>Basic)]
+```
+
+#### C — SWA → AKS (frontend on CDN, backend in cluster)
+
+```mermaid
+flowchart LR
+    user([Browser]) -- HTTPS --> swa[Azure Static Web Apps<br/>React SPA · Free SKU]
+    swa -- CORS HTTPS<br/>/api/... --> lb[[AKS LoadBalancer Service<br/>fd-rates-api]]
+    subgraph AKS["AKS cluster — namespace fd-rates-aks"]
+        lb --> apipod[fd-rates-api Pod<br/>Flask + Playwright]
+    end
+    apipod -- DefaultAzureCredential --> ai[Azure AI Foundry · gpt-4.1]
+    apipod -- DefaultAzureCredential --> di[Document Intelligence]
+    apipod -- DefaultAzureCredential --> blob[(Blob Storage)]
+    apipod -- AcrPull via kubelet MI --> acr[(ACR Basic)]
+```
+
+#### D — All-on-AKS (single LoadBalancer, no public API)
+
+The frontend pod runs Nginx 1.27 with the React build baked in. Nginx terminates the public request, returns static assets directly, and reverse-proxies anything under `/api/` to the in-cluster backend Service. The backend Service is `ClusterIP`, so the API is never directly reachable from the internet.
+
+```mermaid
+flowchart LR
+    user([Browser]) -- HTTP --> lb[[fd-rates-web<br/>LoadBalancer Service]]
+    subgraph AKS["AKS cluster — namespace fd-rates-aks"]
+        lb --> webpod[fd-rates-web Pod<br/>Nginx 1.27 + React build]
+        webpod -- reverse-proxy<br/>/api/ → http://fd-rates-api --> apisvc[[fd-rates-api<br/>ClusterIP Service]]
+        apisvc --> apipod[fd-rates-api Pod<br/>Flask + Playwright]
+    end
+    apipod -- DefaultAzureCredential --> ai[Azure AI Foundry · gpt-4.1]
+    apipod -- DefaultAzureCredential --> di[Document Intelligence]
+    apipod -- DefaultAzureCredential --> blob[(Blob Storage)]
+    apipod -- AcrPull via kubelet MI --> acr[(ACR Basic)]
+```
+
+Image registry: **Azure Container Registry (Basic SKU)** is shared across all four topologies. Images are tagged with the deployment timestamp; the backend's managed identity (App Service system-assigned MI, or AKS kubelet user-assigned MI) holds `AcrPull` against the registry, so no admin user / passwords are stored.
 
 ### One-click deploy (Azure Portal)
 
